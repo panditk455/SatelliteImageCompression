@@ -1,0 +1,33 @@
+OUTPUT FOR DIFFERENT QUALITY LEVELS:
+
+When the Quality is 20 :
+
+file           | compressed_file | original_bits | compressed_bits | compression_ratio | space_savings | mse      | psnr   
+---------------+-----------------+---------------+-----------------+-------------------+---------------+----------+--------
+airplane.bmp   | airplane.jpeg   | 6291888       | 108944          | 0.0173            | 0.9827        | 83.8333  | 28.8966
+inputfile5.tif | inputfile5.jpeg | 393401216     | 10600352        | 0.0269            | 0.9731        | 184.6605 | 25.4671
+boats.bmp      | boats.jpeg      | 3326384       | 153568          | 0.0462            | 0.9538        | 36.7290  | 32.4807
+goldhill.bmp   | goldhill.jpeg   | 9953712       | 165408          | 0.0166            | 0.9834        | 76.5271  | 29.2927
+
+When the Quality is 100 :
+
+file           | compressed_file | original_bits | compressed_bits | compression_ratio | space_savings | mse     | psnr   
+---------------+-----------------+---------------+-----------------+-------------------+---------------+---------+--------
+airplane.bmp   | airplane.jpeg   | 6291888       | 1633744         | 0.2597            | 0.7403        | 16.9695 | 35.8341
+inputfile5.tif | inputfile5.jpeg | 393401216     | 104116080       | 0.2647            | 0.7353        | 20.0793 | 35.1033
+boats.bmp      | boats.jpeg      | 3326384       | 1897680         | 0.5705            | 0.4295        | 0.0929  | 58.4526
+goldhill.bmp   | goldhill.jpeg   | 9953712       | 2876680         | 0.2890            | 0.7110        | 7.9011  | 39.1539
+
+
+
+When comparing JPEG compression results across different quality levels, we can see a clear trade-off between the file size reduction
+and image quality. At a lower quality for example 20, compression is very big. The files shrink by over 
+97–98%, with compression ratios as small as 0.016–0.046. This  means that the compressed files occupy less
+than 5% of the original bit size. However, this comes at the cost of higher distortion. The Mean Squared Error (MSE)
+values range from about 36-185, and PSNR drops to the 25–32 dB range, which shows that there is a visible degradation when it comes to the image quality.
+In contrast, at quality = 100, images preserve far more detail—the MSE drops dramatically (as low as 0.09 for “boats.bmp”),
+and PSNR climbs above 35 dB, with one image reaching an excellent 58 dB, signifying near-lossless reconstruction.
+The trade-off is a larger file: compression ratios rise to roughly 0.26–0.57, meaning files retain 25–57%
+of their original size. Overall, the results show that higher JPEG quality levels sharply improve
+visual accuracy (lower MSE, higher PSNR) but reduce compression efficiency.
+Quality = 20 prioritizes storage savings, while quality = 100 maintains image integrity suitable for analysis or archival use.
