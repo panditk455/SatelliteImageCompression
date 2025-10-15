@@ -1,0 +1,64 @@
+python3 conversion.py images/test1.tif images/fanned-out.tif images/irritated.tif images/desert-ribbons.tif images/deep-blue-cubism.tif\
+  --outdir output_folder \
+  --quality 20
+
+file                 | compressed_file       | original_bits | compressed_bits | compression_ratio | space_savings | mse      | psnr    | ssim  
+---------------------+-----------------------+---------------+-----------------+-------------------+---------------+----------+---------+-------
+test1.tif            | test1.jpeg            | 393346944     | 2071576         | 0.0053            | 0.9947        | 20.9785  | 34.9131 | 0.9011
+test1.tif            | test1.jp2             | 393346944     | 2071176         | 0.0053            | 0.9947        | 7.6799   | 39.2773 | 0.9386
+fanned-out.tif       | fanned-out.jpeg       | 393381024     | 8462184         | 0.0215            | 0.9785        | 146.0659 | 26.4853 | 0.8074
+fanned-out.tif       | fanned-out.jp2        | 393381024     | 8461536         | 0.0215            | 0.9785        | 84.7097  | 28.8515 | 0.8316
+irritated.tif        | irritated.jpeg        | 393374752     | 7441064         | 0.0189            | 0.9811        | 66.4001  | 29.9091 | 0.8652
+irritated.tif        | irritated.jp2         | 393374752     | 7441048         | 0.0189            | 0.9811        | 43.2356  | 31.7724 | 0.8831
+desert-ribbons.tif   | desert-ribbons.jpeg   | 393391904     | 6683400         | 0.0170            | 0.9830        | 84.3237  | 28.8713 | 0.8208
+desert-ribbons.tif   | desert-ribbons.jp2    | 393391904     | 6682672         | 0.0170            | 0.9830        | 42.4148  | 31.8556 | 0.8743
+deep-blue-cubism.tif | deep-blue-cubism.jpeg | 393401216     | 10600352        | 0.0269            | 0.9731        | 184.6605 | 25.4671 | 0.8273
+deep-blue-cubism.tif | deep-blue-cubism.jp2  | 393401216     | 10600376        | 0.0269            | 0.9731        | 85.3885  | 28.8168 | 0.8856
+
+
+python3 conversion.py images/test1.tif images/fanned-out.tif images/irritated.tif images/desert-ribbons.tif images/deep-blue-cubism.tif\
+  --outdir output_folder \
+  --quality 75
+
+file                 | compressed_file       | original_bits | compressed_bits | compression_ratio | space_savings | mse     | psnr    | ssim  
+---------------------+-----------------------+---------------+-----------------+-------------------+---------------+---------+---------+-------
+test1.tif            | test1.jpeg            | 393346944     | 7483904         | 0.0190            | 0.9810        | 5.6339  | 40.6227 | 0.9548
+test1.tif            | test1.jp2             | 393346944     | 7483712         | 0.0190            | 0.9810        | 2.1063  | 44.8957 | 0.9773
+fanned-out.tif       | fanned-out.jpeg       | 393381024     | 24284808        | 0.0617            | 0.9383        | 56.6839 | 30.5962 | 0.9148
+fanned-out.tif       | fanned-out.jp2        | 393381024     | 24284320        | 0.0617            | 0.9383        | 22.9121 | 34.5301 | 0.9475
+irritated.tif        | irritated.jpeg        | 393374752     | 21498928        | 0.0547            | 0.9453        | 21.4512 | 34.8163 | 0.9484
+irritated.tif        | irritated.jp2         | 393374752     | 21498480        | 0.0547            | 0.9453        | 11.7930 | 37.4146 | 0.9625
+desert-ribbons.tif   | desert-ribbons.jpeg   | 393391904     | 19205480        | 0.0488            | 0.9512        | 29.0873 | 33.4938 | 0.9222
+desert-ribbons.tif   | desert-ribbons.jp2    | 393391904     | 19203496        | 0.0488            | 0.9512        | 9.5719  | 38.3208 | 0.9644
+deep-blue-cubism.tif | deep-blue-cubism.jpeg | 393401216     | 26761616        | 0.0680            | 0.9320        | 66.0787 | 29.9302 | 0.9244
+deep-blue-cubism.tif | deep-blue-cubism.jp2  | 393401216     | 26761000        | 0.0680            | 0.9320        | 20.5855 | 34.9952 | 0.9648
+
+Metrics Background:
+Mean Squared Error (MSE):
+MSE measures the average squared difference between a reference image and its compressed version.
+Lower MSE means the reconstructed image is closer to the original.
+
+Peak Signal-to-Noise Ratio (PSNR):
+PSNR converts MSE into a log-scale score.
+Higher PSNR means better quality. 
+
+Structural Similarity Index (SSIM):
+SSIM compares images in terms of perceived structure, luminance, and contrast.
+Scores range from 0 to 1 (higher is better).
+
+We chose to keep the compression rate for JPEG and JPEG 2000 stays the same to compare metrics better. 
+
+Experiment Results Detail:
+Quality = 20 (heavy compression)
+Across all five images, JPEG 2000 outperforms JPEG:
+MSE: avg 52.69 vs 100.49 (JP2 lower by 47.8)
+PSNR: avg 32.11 dB vs 29.13 dB (JP2 higher by 3 dB)
+SSIM: avg 0.883 vs 0.844 (JP2 higher by 0.038)
+
+Quality = 75 (moderate compression)
+The advantage persists—and widens in PSNR:
+MSE: avg 13.39 vs 35.79 (JP2 lower by 22.39)
+PSNR: avg 38.03 dB vs 33.89 dB (JP2 higher by 4.14 dB)
+SSIM: avg 0.963 vs 0.933 (JP2 higher by 0.030)
+
+We noticed that JPEG 2000 outperforms JPEG on all the 5 test tif images across MSE, PSNR, and SSIM at both quality 20 and quality 75.
