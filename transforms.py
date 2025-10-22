@@ -4,7 +4,6 @@ from math import ceil
 
 '''
 Takes image as input and returns arrays containing Y, Cb, and Cr color channel information.
-It's kind of slow. Dot products :(
 '''
 def rgb_to_ycc(image):
     w = image.shape[0]
@@ -21,7 +20,7 @@ def rgb_to_ycc(image):
     return y, cb, cr
 
 '''
-Helper function which downsamples and transposes array during DWT processing
+Helper function which downsamples and transposes array during DWT processing.
 '''
 def downsample(array):
     new_len = ceil(len(array)/2) # First half of inputs rounded up
@@ -47,9 +46,7 @@ def DWT2D(data):
         high.append(convolve(row, highpass)) # High-pass filter convolution
 
     # Downsample and transpose (columns are now rows)
-    print(np.asarray(low).shape)
     low = downsample(low)
-    print(low.shape)
     high = downsample(high)
 
     # Second pass - convolution on columns
@@ -66,15 +63,13 @@ def DWT2D(data):
         diag.append(convolve(row, highpass)) # Diagonal residuals (HH)
 
     # Downsample and re-transpose
-    print(np.asarray(approx).shape)
     cA = downsample(approx)
-    print(cA.shape)
     cH = downsample(horiz)
     cV = downsample(vert)
     cD = downsample(diag)
 
     # Return as dict
-    return {"cA": cA, "cH": cH, "cV": cV, "cD": cD}
+    return {"LL": cA, "levels": {"LH": cH, "HL": cV, "HH": cD}}
 
 '''
 Performs inverse 2-dimensional DWT on dequantized set of coefficients
