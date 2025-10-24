@@ -36,7 +36,7 @@ def DWT2D(data, n):
     lowpass = [0.02674875741080976, -0.01686411844287495, -0.07822326652898785, 0.2668641184428723, 0.6029490182363579, 0.2668641184428723, -0.07822326652898785, -0.01686411844287495, 0.02674875741080976]
     highpass = [0.09127176311424948, -0.05754352622849957, -0.5912717631142470, 1.115087052456994, -0.5912717631142470, -0.05754352622849957, 0.09127176311424948]
 
-    coeff_dict = {}
+    coeff_dict = {"levels": []}
     
     for i in range(n):
 
@@ -72,10 +72,10 @@ def DWT2D(data, n):
         cV = downsample(vert)
         cD = downsample(diag)
 
-        coeff_dict[i] = {"LH": cH, "HL": cV, "HH": cD}
+        coeff_dict["levels"].append({"LH": cH, "HL": cV, "HH": cD})
         data = cA
 
-    coeff_dict["data"] = data
+    coeff_dict["LL"] = data
 
     return coeff_dict
 
