@@ -28,48 +28,56 @@ def downsample(array):
     return np.transpose(array) # Transposes and returns
 
 '''
-Performs 2-dimensional DWT on an array of color data from an image.
+Performs 2-dimensional, multi-level DWT on an array of color data from an image.
 Return dictionary containing four sets of coefficients of approximation and detail information.
 '''
-def DWT2D(data):
+def DWT2D(data, n):
     # Forward filterbank
     lowpass = [0.02674875741080976, -0.01686411844287495, -0.07822326652898785, 0.2668641184428723, 0.6029490182363579, 0.2668641184428723, -0.07822326652898785, -0.01686411844287495, 0.02674875741080976]
     highpass = [0.09127176311424948, -0.05754352622849957, -0.5912717631142470, 1.115087052456994, -0.5912717631142470, -0.05754352622849957, 0.09127176311424948]
 
-    # Convolve array with filterbank
-    # First pass - convolution on rows
-    low = []
-    high = []
+    coeff_dict = {}
+    
+    for i in range(n):
 
-    for row in data:
-        low.append(convolve(row, lowpass)) # Low-pass filter convolution
-        high.append(convolve(row, highpass)) # High-pass filter convolution
+        # Convolve array with filterbank
+        # First pass - convolution on rows
+        low = []
+        high = []
 
-    # Downsample and transpose (columns are now rows)
-    low = downsample(low)
-    high = downsample(high)
+        for row in data:
+            low.append(convolve(row, lowpass)) # Low-pass filter convolution
+            high.append(convolve(row, highpass)) # High-pass filter convolution
 
-    # Second pass - convolution on columns
-    approx = []
-    horiz = []
-    vert = []
-    diag = []
+        # Downsample and transpose (columns are now rows)
+        low = downsample(low)
+        high = downsample(high)
 
-    for row in low:
-        approx.append(convolve(row, lowpass)) # Approximation coefficients (LL)
-        horiz.append(convolve(row, highpass)) # Horizontal residuals (LH)
-    for row in high:
-        vert.append(convolve(row, lowpass)) # Vertical residuals (HL)
-        diag.append(convolve(row, highpass)) # Diagonal residuals (HH)
+        # Second pass - convolution on columns
+        approx = []
+        horiz = []
+        vert = []
+        diag = []
 
-    # Downsample and re-transpose
-    cA = downsample(approx)
-    cH = downsample(horiz)
-    cV = downsample(vert)
-    cD = downsample(diag)
+        for row in low:
+            approx.append(convolve(row, lowpass)) # Approximation coefficients (LL)
+            horiz.append(convolve(row, highpass)) # Horizontal residuals (LH)
+        for row in high:
+            vert.append(convolve(row, lowpass)) # Vertical residuals (HL)
+            diag.append(convolve(row, highpass)) # Diagonal residuals (HH)
 
-    # Return as dict
-    return {"LL": cA, "levels": {"LH": cH, "HL": cV, "HH": cD}}
+        # Downsample and re-transpose
+        cA = downsample(approx)
+        cH = downsample(horiz)
+        cV = downsample(vert)
+        cD = downsample(diag)
+
+        coeff_dict[i] = {"LH": cH, "HL": cV, "HH": cD}
+        data = cA
+
+    coeff_dict["data"] = data
+
+    return coeff_dict
 
 '''
 Performs inverse 2-dimensional DWT on dequantized set of coefficients
