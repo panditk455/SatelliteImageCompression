@@ -69,14 +69,14 @@ def entropy_decode(block: Dict) -> Dict:
     }
 
 # Encode all blocks
-def entropy_encode(blocks: List[Dict], output_path: str):
+def entropy_encode_all(blocks: List[Dict], output_path: str):
     with ProcessPoolExecutor() as executor:
         encoded = list(executor.map(entropy_encode, blocks))
     with open(output_path, 'wb') as f:
         pickle.dump(encoded, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 # Decode all blocks
-def entropy_decode(input_path: str) -> List[Dict]:
+def entropy_decode_all(input_path: str) -> List[Dict]:
     with open(input_path, 'rb') as f:
         encoded = pickle.load(f)
     with ProcessPoolExecutor() as executor:
@@ -100,8 +100,8 @@ if __name__ == "__main__":
     }
 
     out_file = "blocks_ac.bin"
-    entropy_encode([blk1, blk2], out_file)
-    decoded_blocks = entropy_decode(out_file)
+    entropy_encode_all([blk1, blk2], out_file)
+    decoded_blocks = entropy_decode_all(out_file)
 
     for ref, dec in zip([blk1, blk2], decoded_blocks):
         assert np.array_equal(ref['data'], dec['data'])
