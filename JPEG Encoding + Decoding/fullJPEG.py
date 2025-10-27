@@ -532,7 +532,7 @@ def scale_qtable(base_qt: np.ndarray, quality: int) -> np.ndarray:
     if quality < 50:
         scale = 5000 / quality
     else:
-        scale = 200 - 2 * quality   # <-- you were missing this line
+        scale = 200 - 2 * quality 
 
     qtable = (base_qt * scale + 50) // 100
     return np.clip(qtable, 1, 255).astype(int)
