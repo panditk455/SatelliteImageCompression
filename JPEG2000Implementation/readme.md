@@ -56,19 +56,24 @@ Return format: {
                }
 ```
 **Decoding:**
+```
 Import partition.py and call reverse_partition(blocks: List[Dict])
 Parameters: quantized_result: the output list of dictionaries (one dictionary for each in Y, Cb, Cr) from entropy decoding
 Return: a list of dictionaries (the same format as the output from quantization)
-
+```
 
 ### Entropy Coding:
 **Encoding:**
+```
 Import entropy_parallel.py and call entropy_encode_all(blocks: List[Dict], output_path: str)
 Parameters: blocks: the return list of dictionaries from partitioning
             output_path: 'xxx.bin' the output path to the binary file
 Return: No return value. Entropy coding part write the encoded data (in tuple format) into a binary file
+```
 
 **Decoding:**
+```
 Import entropy_parallel.py and call entropy_decode_all(input_path: str)
 Parameters: input_path: Binary file path
 Return: List of dictionaries ready to be fed into decoding in partitioning
+```
