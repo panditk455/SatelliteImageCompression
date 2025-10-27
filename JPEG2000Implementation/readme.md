@@ -9,11 +9,12 @@
 
 **3. Entropy coding:** After partitioning the data array into different blocks, we apply entropy coding (a combination of Arithmetic coding and DEFLATE based on the nature of the coefficients in the blocks) to each of the blocks in parallel.
 
-**Note:** We made some decision and didn't strictly follow the JPEG2000 pipeline because of the time limitation and resource we have access to. 
-(a)For quantization, we implemented a very basic version of linear quantization without optimization specifically designed for JPEG2000.
-(b)For tier 1 (EBCOT: entropy coding along with some format conversion for optimization), we decided to ignore most optimiaztion and format conversion for now but we kept the two very main steps, which are partitioning and arithmetic coder.  
-(c)We decide to convert the results after tier 1 into binary file instead of following the traditional tier 2 + jp2 format conversion from code stream.
-(d)More work (Example: optimization/tier 2/...) could be done for future work.
+**Note:** 
+We made some decision and didn't strictly follow the JPEG2000 pipeline because of the time limitation and resource we have access to. <br>
+(a)For quantization, we implemented a very basic version of linear quantization without optimization specifically designed for JPEG2000.<br>
+(b)For tier 1 (EBCOT: entropy coding along with some format conversion for optimization), we decided to ignore most optimiaztion and format conversion for now but we kept the two very main steps, which are partitioning and arithmetic coder.  <br>
+(c)We decide to convert the results after tier 1 into binary file instead of following the traditional tier 2 + jp2 format conversion from code stream.<br>
+(d)More work (Example: optimization/tier 2/...) could be done for future work.<br>
 
 ## How to use:
 ### Quantization
