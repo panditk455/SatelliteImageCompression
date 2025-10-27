@@ -1,7 +1,7 @@
-#Documentation on the files in this folder
+# Documentation on the files in this folder
 
-##There are three files in this folder: quantization.py, partition.py, and entropy_parallel.py.
-##These python files are created for three steps in the JPEG 2000 pipeline.
+## There are three files in this folder: quantization.py, partition.py, and entropy_parallel.py.
+## These python files are created for three steps in the JPEG 2000 pipeline.
 
 **1. Quantization:** After DWT, the image get divided into several layers with three parts: HH, HL, and LH and one LL part. We apply quantization to the output. We choose differet step value for each parts in the numpy array based on their importance. Quantization reduces the number of different integers and therefore make the data easier to store.
 
@@ -15,8 +15,8 @@
 (c)We decide to convert the results after tier 1 into binary file instead of following the traditional tier 2 + jp2 format conversion from code stream.
 (d)More work (Example: optimization/tier 2/...) could be done for future work.
 
-##How to use:
-###Quantization
+## How to use:
+### Quantization
 **Encoding:**
 ```
 Import quantization.py and call quantize_all(dwt_result: List[Dict], quality: float)
@@ -39,7 +39,7 @@ Parameters: result: the list of dictionaries (one dictionary for each in Y, Cb, 
 Return: a list of dictionaries (same format as result from DWT)
 ```
 
-###Partition
+### Partition
 **Encoding:**
 ```
 Import partition.py and call partition_all(quantized_result: List[Dict], block_size: int = 64)
@@ -61,7 +61,7 @@ Parameters: quantized_result: the output list of dictionaries (one dictionary fo
 Return: a list of dictionaries (the same format as the output from quantization)
 
 
-###Entropy Coding:
+### Entropy Coding:
 **Encoding:**
 Import entropy_parallel.py and call entropy_encode_all(blocks: List[Dict], output_path: str)
 Parameters: blocks: the return list of dictionaries from partitioning
