@@ -164,7 +164,7 @@ def encode_block(block: Dict) -> BlockTuple:
     unique_vals = unique_vals_np.astype(int).tolist()
     K = len(unique_vals)
 
-    if K == 0:
+    if K <= 1:
         raw_bytes = zlib.compress(np.array([], dtype=np.int32).tobytes(), level=6)
         return ('raw', comp, lvl, bnd, posy, posx, h, w, raw_bytes)
 
@@ -179,10 +179,10 @@ def encode_block(block: Dict) -> BlockTuple:
         bits_list = coder.compress(idx_list)
         if bits_list:
             bits = np.fromiter(bits_list, dtype=np.uint8, count=len(bits_list))
-            payload = np.packbits(bits).tobytes()
+            bytes = np.packbits(bits).tobytes()
         else:
-            payload = b""
-        return ('ac', comp, lvl, bnd, posy, posx, h, w, K, payload, unique_vals)
+            bytes = b""
+        return ('ac', comp, lvl, bnd, posy, posx, h, w, K, bytes, unique_vals)
     except Exception:
         raw_bytes = zlib.compress(data.astype(np.int32, copy=False).tobytes(), level=6)
         return ('raw', comp, lvl, bnd, posy, posx, h, w, raw_bytes)
@@ -211,9 +211,10 @@ def decode_block(tup: BlockTuple) -> Dict:
     bits_list = bits.tolist()
     emitted_syms = coder.decompress(bits_list, n)
     idx_list = [s - 1 for s in emitted_syms]
-    vals = [unique_vals[i] for i in idx_list]
-    coeffs = [zigzag_decode_arr(v) for v in vals]
-    data2d = np.array(coeffs, dtype=np.int32).reshape((h, w))
+    vals = np.array([unique_vals[i] for i in idx_list], dtype=np.int64)
+    coeffs = zigzag_decode_arr(vals)
+    data2d = coeffs.reshape((h, w))
+
 
     return {
         'component': comp, 'level': lvl, 'band': bnd,
