@@ -1,24 +1,25 @@
-# Poorly constructed testing file don't look
-
-import transforms, quantization, partition, entropy_parallel
-from skimage import io, color
-from scipy.signal import convolve
-import numpy as np
+import baseline, quantization
+from skimage import io, util, color, metrics
 import time
 
 file = 'images/deep-blue-cubism.tif'
-
 img = io.imread(file)
+# io.imsave('original.png', img)
 
-start = time.time()
-# y, cb, cr = transforms.rgb_to_ycc(img)
-ycc_img = color.rgb2ycbcr(img)
-y, cb, cr = ycc_img[:,:,0], ycc_img[:,:,1], ycc_img[:,:,2]
+colors = baseline.getYCbCrArrays(file)
+dwt_coeffs = baseline.DWTAll(colors)
+quantized = quantization.quantize_all(dwt_coeffs, 100)
 
-coeff_list = [transforms.DWT2D(y, 3), transforms.DWT2D(cb, 3), transforms.DWT2D(cr, 3)]
 
-quant = quantization.quantize_all(coeff_list, 100)
-part = partition.partition_all(quant)
-entropy = entropy_parallel.entropy_encode_all(part, 'test.bin')
 
-print(len(part))
+dequantized = quantization.dequantize_all(quantized, 100)
+idwt = baseline.DecodeAll(dequantized)
+recon = baseline.reconstructRGB(idwt)
+print(metrics.peak_signal_noise_ratio(img, recon))
+
+quantized2 = quantization.quantize_all(dwt_coeffs, 0)
+dequantized2 = quantization.dequantize_all(quantized2, 0)
+idwt2 = baseline.DecodeAll(dequantized2)
+recon2 = baseline.reconstructRGB(idwt2)
+
+print(metrics.peak_signal_noise_ratio(img, recon2))
