@@ -165,7 +165,8 @@ def encode_block(block: Dict) -> BlockTuple:
     K = len(unique_vals)
 
     if K <= 1:
-        raw_bytes = zlib.compress(np.array([], dtype=np.int32).tobytes(), level=6)
+    # store the real data; zlib compresses uniform blocks extremely well
+        raw_bytes = zlib.compress(data.astype(np.int32, copy=False).tobytes(), level=6)
         return ('raw', comp, lvl, bnd, posy, posx, h, w, raw_bytes)
 
     val2idx = {v: i for i, v in enumerate(unique_vals)}
@@ -193,8 +194,16 @@ def decode_block(tup: BlockTuple) -> Dict:
     if kind == 'raw':
         _, comp, lvl, bnd, posy, posx, h, w, raw_bytes = tup
         buf = zlib.decompress(raw_bytes)
-        arr = np.frombuffer(buf, dtype=np.int32) if buf else np.empty((h*w,), dtype=np.int32)
+
+        # Make decoding deterministic
+        if buf:
+            arr = np.frombuffer(buf, dtype=np.int32)
+        else:
+            # Only allow truly empty blocks (h*w == 0); otherwise fill zeros
+            arr = np.zeros((h * w,), dtype=np.int32)
+
         data2d = arr.reshape((h, w))
+
         return {
             'component': comp, 'level': lvl, 'band': bnd,
             'position': (posy, posx), 'shape': [h, w], 'data': data2d,
@@ -224,6 +233,8 @@ def decode_block(tup: BlockTuple) -> Dict:
 def entropy_encode_all(blocks: List[Dict], output_path: str):
     with ProcessPoolExecutor() as executor:
         encoded = list(executor.map(encode_block, blocks, chunksize=64))
+        
+    # encoded = list(map(encode_block, blocks))
     with open(output_path, 'wb') as f:
         pickle.dump(encoded, f, protocol=pickle.HIGHEST_PROTOCOL)
 
@@ -232,4 +243,5 @@ def entropy_decode_all(input_path: str) -> List[Dict]:
         encoded = pickle.load(f)
     with ProcessPoolExecutor() as executor:
         decoded = list(executor.map(decode_block, encoded, chunksize=64))
+    # decoded = list(map(decode_block, encoded))
     return decoded
