@@ -1,11 +1,13 @@
 from PIL import Image, features
-from skimage import color 
 import os
 import sys
 import math
 import argparse
 import numpy as np
 from skimage.metrics import structural_similarity as ssim
+import transforms, quantization, partition, entropy_parallel, baseline
+from skimage import io, color, util, metrics
+import time
 
 
 def ensure_rgb(img: Image.Image) -> Image.Image:
@@ -55,20 +57,46 @@ def convert_to_jpeg2000(input_path: str, output_dir: str, quality: int = 10, jpe
         im = ensure_rgb(im)
         arr = np.array(im)
 
-    # # JP2 compression ratio 
-    # # higher ratio = more compression
-    # # cratio = int(round(200 / quality))
-    # # cratio = quality
-    # # cratio = int(round(1000 / quality))
+        img = io.imread(FILE)
 
-    # Encode to JP2 (lossy)
+    start = time.time()
+
+    # io.imsave('original.png', img)
+
+    colors = baseline.getYCbCrArrays(FILE)
+    dwt_coeffs = baseline.DWTAll(colors)
+    quantized = quantization.quantize_all(dwt_coeffs, quality)
+    part = partition.partition_all(quantized, block_size)
+    entropy_parallel.entropy_encode_all(part, 'test.bin')
+
+
+
+    de_entro = entropy_parallel.entropy_decode_all('test.bin')
+    de_part = partition.reverse_partition(de_entro)
+    de_quant = quantization.dequantize_all(de_part, quality)
+    idwt = baseline.DecodeAll(de_quant)
+    recon = baseline.reconstructRGB(idwt)
+    # print(metrics.peak_signal_noise_ratio(img, recon))
+
+    # quantized2 = quantization.quantize_all(dwt_coeffs, 0)
+    # dequantized2 = quantization.dequantize_all(quantized2, 0)
+    # idwt2 = baseline.DecodeAll(dequantized2)
+    # recon2 = baseline.reconstructRGB(idwt2)
+
+    # print(metrics.peak_signal_noise_ratio(img, recon2))
+    
+    io.imsave('recon.png', recon)
+    
+
+    # print(len(part))
+    print(f"Done in {time.time() - start:.3f}s")
     
 
     return out_path
 
 
 # Metrics: 
-def analyze_pair(original_path: str, compressed_path: str) -> dict:
+def analyze_pair(original_path: str, compressed_path: str, block_size: int) -> dict:
 
     original_bytes = os.path.getsize(original_path)
     compressed_bytes = os.path.getsize(compressed_path)
@@ -99,7 +127,7 @@ def analyze_pair(original_path: str, compressed_path: str) -> dict:
     psnr_db = psnr(mse_val)
     ssim_val = compute_ssim(arr_orig, arr_comp)
 
-    return { "file": os.path.basename(original_path), "compressed_file": os.path.basename(compressed_path), "original_bits": original_bits,
+    return {"block_size": block_size, "file": os.path.basename(original_path), "compressed_file": os.path.basename(compressed_path), "original_bits": original_bits,
         "compressed_bits": compressed_bits, "compression_ratio": ratio, "space_savings": savings, "mse": mse_val,  "psnr": psnr_db, "ssim": ssim_val,}
 
 
@@ -108,7 +136,7 @@ def print_table(rows):
         print("No files analyzed.")
         return
 
-    headers = ["file", "compressed_file", "original_bits", "compressed_bits", "compression_ratio", "space_savings", "mse", "psnr", "ssim"]
+    headers = ["block_size", "file", "compressed_file", "original_bits", "compressed_bits", "compression_ratio", "space_savings", "mse", "psnr", "ssim"]
 
 # 4 decimal places for now:
     def fmt(v):
@@ -132,19 +160,16 @@ def main():
     parser = argparse.ArgumentParser(description = "Convert other form of images to JPEG and JPEG2000.")
     parser.add_argument("inputs", nargs = "+")
     parser.add_argument("--outdir", required = True)
-    parser.add_argument("--quality", type = int, default = 10)
+    parser.add_argument("--block_size", type = int, default = 64)
+    parser.add_argument("--quality", type = int, default = 75)
     args = parser.parse_args()
 
     os.makedirs(args.outdir, exist_ok = True)
     results = []
 
     for inp in args.inputs:
-        
-        jpeg_path, jpeg_size = convert_to_jpeg(inp, args.outdir, args.quality)
-        results.append(analyze_pair(inp, jpeg_path))
-
-        jp2_path = convert_to_jpeg2000(inp, args.outdir, args.quality, jpeg_size)
-        results.append(analyze_pair(inp, jp2_path))
+        jp2_path = convert_to_jpeg2000(inp, args.outdir, args.quality, args.block_size)
+        results.append(analyze_pair(inp, jp2_path, args.block_size))
 
     print_table(results)
 
@@ -153,7 +178,5 @@ if __name__ == "__main__":
     main()
 
 # type for the purpose of testing:
-    
-# python3 conversion.py images/airplane.bmp images/inputfile5.tif images/boats.bmp images/goldhill.bmp \ --outdir output_folder \ --quality 20
 
-# python3 conversion.py images/test1.tif images/fanned-out.tif images/irritated.tif images/desert-ribbons.tif images/deep-blue-cubism.tif\ --outdir output_folder \ --quality 20 
+# python3 test_whole.py images/re-entry.tif images/fanned-out.tif images/irritated.tif images/desert-ribbons.tif images/deep-blue-cubism.tif\ --outdir output_folder \ --block_size 64 \ --quality 20 

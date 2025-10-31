@@ -5,8 +5,8 @@ from skimage import io, color, util, metrics
 import numpy as np
 import time
 
-# FILE = 'images/deep-blue-cubism.tif'
-FILE = 'images/airplane.bmp'
+FILE = 'images/deep-blue-cubism.tif'
+# FILE = 'images/airplane.bmp'
 
 def main():
     quality = 100
