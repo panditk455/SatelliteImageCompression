@@ -10,7 +10,7 @@ FILE = 'images/deep-blue-cubism.tif'
 
 def main():
     quality = 100
-    block_size = 256
+    block_size = 64
 
     img = io.imread(FILE)
 
