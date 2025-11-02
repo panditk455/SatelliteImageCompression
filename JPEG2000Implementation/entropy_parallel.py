@@ -140,7 +140,7 @@ def make_model_dict(alphabet_size: int) -> BaseFrequencyTable:
 # AC block: ('ac', comp, level, band, pos_y, pos_x, h, w, #unique_vals, encoded_bytes, unique_vals)
 # RAW block: ('raw', comp, level, band, pos_y, pos_x, h, w, raw_zlib_bytes). 
 # Created for uniform blocks: blocks with only one unique coefficient. Therefore cannot apply arithmetic encoder to it.
-ACBlock = Tuple[str, int, int, Union[str, int], int, int, int, int, int, bytes, List[int]]
+ACBlock = Tuple[str, int, int, Union[str, int], int, int, int, int, int, bytes, int, List[int]]
 RAWBlock = Tuple[str, int, int, Union[str, int], int, int, int, int, bytes]
 BlockTuple = Union[ACBlock, RAWBlock]
 
@@ -170,20 +170,24 @@ def encode_block(block: Dict) -> BlockTuple:
         return ('raw', comp, lvl, bnd, posy, posx, h, w, raw_bytes)
 
     val2idx = {v: i for i, v in enumerate(unique_vals)}
-    idx_list = [val2idx[int(v)] + 1 for v in zz.tolist()]  # shift by +1
-    A = K + 1
+    idx_list = [val2idx[int(v)] for v in zz.tolist()]  # 0-based
+    A = K
 
     model = make_model_dict(A)
     coder = AECompressor(model)
 
     try:
         bits_list = coder.compress(idx_list)
-        if bits_list:
-            bits = np.fromiter(bits_list, dtype=np.uint8, count=len(bits_list))
-            bytes = np.packbits(bits).tobytes()
+        bit_count = len(bits_list)
+
+        if bit_count > 0:
+            bits = np.fromiter(bits_list, dtype=np.uint8, count=bit_count)
+            enc_bytes = np.packbits(bits, bitorder="little").tobytes()
         else:
-            bytes = b""
-        return ('ac', comp, lvl, bnd, posy, posx, h, w, K, bytes, unique_vals)
+            enc_bytes = b""
+
+        return ('ac', comp, lvl, bnd, posy, posx, h, w, K, enc_bytes, bit_count, unique_vals)
+
     except Exception:
         raw_bytes = zlib.compress(data.astype(np.int32, copy=False).tobytes(), level=6)
         return ('raw', comp, lvl, bnd, posy, posx, h, w, raw_bytes)
@@ -209,17 +213,17 @@ def decode_block(tup: BlockTuple) -> Dict:
             'position': (posy, posx), 'shape': [h, w], 'data': data2d,
         }
 
-    _, comp, lvl, bnd, posy, posx, h, w, K, payload, unique_vals = tup
+    _, comp, lvl, bnd, posy, posx, h, w, K, payload, bit_count, unique_vals = tup
     n = h * w
 
-    A = K + 1
+    A = K
     model = make_model_dict(A)
     coder = AECompressor(model)
-
-    bits = np.unpackbits(np.frombuffer(payload, dtype=np.uint8)) if payload else np.array([], np.uint8)
+    bits = np.unpackbits(np.frombuffer(payload, dtype=np.uint8), bitorder="little") if payload else np.array([], np.uint8)
+    bits = bits[:bit_count]  # trim to the real encoded bit length
     bits_list = bits.tolist()
     emitted_syms = coder.decompress(bits_list, n)
-    idx_list = [s - 1 for s in emitted_syms]
+    idx_list = emitted_syms  # no offset now
     vals = np.array([unique_vals[i] for i in idx_list], dtype=np.int64)
     coeffs = zigzag_decode_arr(vals)
     data2d = coeffs.reshape((h, w))

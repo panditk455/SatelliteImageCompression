@@ -5,14 +5,12 @@ from skimage import io, color, util, metrics
 import numpy as np
 import time
 
-FILE = 'images/deep-blue-cubism.tif'
-# FILE = 'images/airplane.bmp'
+# FILE = 'images/deep-blue-cubism.tif'
+FILE = 'images/airplane.bmp'
 
 def main():
     quality = 100
-    block_size = 64
-
-    img = io.imread(FILE)
+    block_size = 128
 
     start = time.time()
 

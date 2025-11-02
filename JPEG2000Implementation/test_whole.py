@@ -8,6 +8,7 @@ from skimage.metrics import structural_similarity as ssim
 import transforms, quantization, partition, entropy_parallel, baseline
 from skimage import io, color, util, metrics
 import time
+import matplotlib.pyplot as plt
 
 
 def ensure_rgb(img: Image.Image) -> Image.Image:
@@ -48,30 +49,23 @@ def bytes_to_bits(nbytes: int) -> int:
 def compute_ssim(a: np.ndarray, b: np.ndarray) -> float:
     return float(ssim(a, b, channel_axis=-1, data_range=255))
 
-def convert_to_jpeg2000(input_path: str, output_dir: str, quality: int = 10, jpeg_size_bytes: int = 0) -> str:
+def convert_to_jpeg2000(input_path: str, output_dir: str, quality: int = 75, block_size: int = 64) -> str:
     os.makedirs(output_dir, exist_ok=True)
     name = os.path.splitext(os.path.basename(input_path))[0]
-    out_path = os.path.join(output_dir, f"{name}.bin")
-
-    with Image.open(input_path) as im:
-        im = ensure_rgb(im)
-        arr = np.array(im)
-
-        img = io.imread(FILE)
+    bin_path = os.path.join(output_dir, f"{name}.bin")
+    image_path = os.path.join(output_dir, f"{name}.png")
 
     start = time.time()
 
     # io.imsave('original.png', img)
 
-    colors = baseline.getYCbCrArrays(FILE)
+    colors = baseline.getYCbCrArrays(input_path)
     dwt_coeffs = baseline.DWTAll(colors)
     quantized = quantization.quantize_all(dwt_coeffs, quality)
     part = partition.partition_all(quantized, block_size)
-    entropy_parallel.entropy_encode_all(part, 'test.bin')
+    entropy_parallel.entropy_encode_all(part, bin_path)
 
-
-
-    de_entro = entropy_parallel.entropy_decode_all('test.bin')
+    de_entro = entropy_parallel.entropy_decode_all(bin_path)
     de_part = partition.reverse_partition(de_entro)
     de_quant = quantization.dequantize_all(de_part, quality)
     idwt = baseline.DecodeAll(de_quant)
@@ -85,21 +79,21 @@ def convert_to_jpeg2000(input_path: str, output_dir: str, quality: int = 10, jpe
 
     # print(metrics.peak_signal_noise_ratio(img, recon2))
     
-    io.imsave('recon.png', recon)
+    io.imsave(image_path, recon)
     
 
     # print(len(part))
-    print(f"Done in {time.time() - start:.3f}s")
-    
+    runtime = time.time() - start
+    print(f"{name} (block {block_size}): Done in {runtime:.3f}s")
 
-    return out_path
+    return bin_path, image_path, runtime
 
 
 # Metrics: 
-def analyze_pair(original_path: str, compressed_path: str, block_size: int) -> dict:
+def analyze_pair(original_path: str, bin_path: str, compressed_path: str, block_size: int, runtime, quality) -> dict:
 
     original_bytes = os.path.getsize(original_path)
-    compressed_bytes = os.path.getsize(compressed_path)
+    compressed_bytes = os.path.getsize(bin_path)
     original_bits = bytes_to_bits(original_bytes)
     compressed_bits = bytes_to_bits(compressed_bytes)
 
@@ -127,8 +121,8 @@ def analyze_pair(original_path: str, compressed_path: str, block_size: int) -> d
     psnr_db = psnr(mse_val)
     ssim_val = compute_ssim(arr_orig, arr_comp)
 
-    return {"block_size": block_size, "file": os.path.basename(original_path), "compressed_file": os.path.basename(compressed_path), "original_bits": original_bits,
-        "compressed_bits": compressed_bits, "compression_ratio": ratio, "space_savings": savings, "mse": mse_val,  "psnr": psnr_db, "ssim": ssim_val,}
+    return {"block_size": block_size, "quality": quality, "file": os.path.basename(original_path), "compressed_file": os.path.basename(compressed_path), "original_bits": original_bits,
+        "compressed_bits": compressed_bits, "compression_ratio": ratio, "space_savings": savings, "runtime": runtime, "mse": mse_val,  "psnr": psnr_db, "ssim": ssim_val,}
 
 
 def print_table(rows):
@@ -136,7 +130,7 @@ def print_table(rows):
         print("No files analyzed.")
         return
 
-    headers = ["block_size", "file", "compressed_file", "original_bits", "compressed_bits", "compression_ratio", "space_savings", "mse", "psnr", "ssim"]
+    headers = ["block_size", "quality", "file", "compressed_file", "original_bits", "compressed_bits", "compression_ratio", "space_savings", "runtime", "mse", "psnr", "ssim"]
 
 # 4 decimal places for now:
     def fmt(v):
@@ -155,28 +149,171 @@ def print_table(rows):
         print(" | ".join(fmt(r.get(h)).ljust(widths[h]) for h in headers))
 
 
+def plot_results(results, outdir):
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    # Group results by image filename
+    grouped = {}
+    for r in results:
+        fname = r["file"]
+        grouped.setdefault(fname, []).append(r)
+
+    # Sort each group by block size
+    for fname in grouped:
+        grouped[fname].sort(key=lambda x: x["block_size"])
+
+    # Use modern Matplotlib colormap API (no deprecation warning)
+    cmap = plt.colormaps.get_cmap("tab10")
+    n_colors = len(grouped)
+
+    # ---- Compression Ratio Plot ----
+    plt.figure(figsize=(8, 6))
+    for i, (fname, vals) in enumerate(grouped.items()):
+        color = cmap(i / max(1, n_colors - 1))  # evenly spaced colors
+        plt.plot(
+            [v["block_size"] for v in vals],
+            [v["compression_ratio"] for v in vals],
+            marker="o",
+            linewidth=2,
+            markersize=6,
+            color=color,
+            label=fname,
+        )
+
+    plt.xlabel("Block Size", fontsize=12)
+    plt.ylabel("Compression Ratio (compressed/original)", fontsize=12)
+    plt.title("Compression Ratio vs Block Size", fontsize=14, fontweight="bold")
+    plt.legend(title="Image", loc="best", fontsize=10)
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir, "compression_ratio_vs_blocksize.png"), dpi=300)
+    plt.close()
+
+    # ---- Runtime Plot ----
+    plt.figure(figsize=(8, 6))
+    for i, (fname, vals) in enumerate(grouped.items()):
+        color = cmap(i / max(1, n_colors - 1))
+        plt.plot(
+            [v["block_size"] for v in vals],
+            [v["runtime"] for v in vals],
+            marker="s",
+            linewidth=2,
+            markersize=6,
+            color=color,
+            label=fname,
+        )
+
+    plt.xlabel("Block Size", fontsize=12)
+    plt.ylabel("Runtime (seconds)", fontsize=12)
+    plt.title("Runtime vs Block Size", fontsize=14, fontweight="bold")
+    plt.legend(title="Image", loc="best", fontsize=10)
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir, "runtime_vs_blocksize.png"), dpi=300)
+    plt.close()
+
+    print(f"Saved plots to {outdir}")
+
+def plot_results_quality(results, outdir):
+    import os
+    import matplotlib.pyplot as plt
+
+    # Group by image filename
+    grouped = {}
+    for r in results:
+        fname = r["file"]
+        grouped.setdefault(fname, []).append(r)
+
+    # Sort each group by quality for nice lines
+    for fname in grouped:
+        grouped[fname].sort(key=lambda x: x["quality"])
+
+    # Colormap with distinct colors
+    cmap = plt.colormaps.get_cmap("tab10")
+    n_colors = max(1, len(grouped))
+
+    # ---------- Runtime vs Quality ----------
+    plt.figure(figsize=(8, 6))
+    for i, (fname, vals) in enumerate(grouped.items()):
+        color = cmap(i / max(1, n_colors - 1))
+        qualities = [v["quality"] for v in vals]
+        runtimes  = [v["runtime"] for v in vals]
+        plt.plot(qualities, runtimes, marker="s", linewidth=2, markersize=6, color=color, label=fname)
+
+    plt.xlabel("Quality", fontsize=12)
+    plt.ylabel("Runtime (seconds)", fontsize=12)
+    plt.title("Runtime vs Quality (fixed block size)", fontsize=14, fontweight="bold")
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.legend(title="Image", loc="best", fontsize=10)
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir, "runtime_vs_quality.png"), dpi=300)
+    plt.close()
+
+    # ---------- Compression Ratio vs Quality ----------
+    plt.figure(figsize=(8, 6))
+    for i, (fname, vals) in enumerate(grouped.items()):
+        color = cmap(i / max(1, n_colors - 1))
+        qualities = [v["quality"] for v in vals]
+        ratios    = [v["compression_ratio"] for v in vals]
+        plt.plot(qualities, ratios, marker="o", linewidth=2, markersize=6, color=color, label=fname)
+
+    plt.xlabel("Quality", fontsize=12)
+    plt.ylabel("Compression Ratio (compressed/original)", fontsize=12)
+    plt.title("Compression Ratio vs Quality (fixed block size)", fontsize=14, fontweight="bold")
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.legend(title="Image", loc="best", fontsize=10)
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir, "compression_ratio_vs_quality.png"), dpi=300)
+    plt.close()
+
+    # ---------- PSNR vs Quality ----------
+    plt.figure(figsize=(8, 6))
+    for i, (fname, vals) in enumerate(grouped.items()):
+        color = cmap(i / max(1, n_colors - 1))
+        qualities = [v["quality"] for v in vals]
+        psnrs     = [v["psnr"] for v in vals]
+        plt.plot(qualities, psnrs, marker="^", linewidth=2, markersize=6, color=color, label=fname)
+
+    plt.xlabel("Quality", fontsize=12)
+    plt.ylabel("PSNR (dB)", fontsize=12)
+    plt.title("PSNR vs Quality (fixed block size)", fontsize=14, fontweight="bold")
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.legend(title="Image", loc="best", fontsize=10)
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir, "psnr_vs_quality.png"), dpi=300)
+    plt.close()
+
+    print(f"Saved quality plots to {outdir}")
+
 
 def main():
     parser = argparse.ArgumentParser(description = "Convert other form of images to JPEG and JPEG2000.")
     parser.add_argument("inputs", nargs = "+")
     parser.add_argument("--outdir", required = True)
-    parser.add_argument("--block_size", type = int, default = 64)
-    parser.add_argument("--quality", type = int, default = 75)
+    parser.add_argument("--block_sizes", nargs = "+", type = int, default = [64])
+    parser.add_argument("--qualities", nargs = "+", type = int, default = [75])
     args = parser.parse_args()
 
     os.makedirs(args.outdir, exist_ok = True)
     results = []
 
     for inp in args.inputs:
-        jp2_path = convert_to_jpeg2000(inp, args.outdir, args.quality, args.block_size)
-        results.append(analyze_pair(inp, jp2_path, args.block_size))
+        for block_size in args.block_sizes:
+            for quality in args.qualities:
+                bin_out_path, image_out_path, runtime = convert_to_jpeg2000(inp, args.outdir, quality, block_size)
+                results.append(analyze_pair(inp, bin_out_path, image_out_path, block_size, runtime, quality))
 
     print_table(results)
+    # plot_results(results, args.outdir)
+    plot_results_quality(results, args.outdir)
 
 
 if __name__ == "__main__":
     main()
 
 # type for the purpose of testing:
+    
+# python3 test_whole.py images/airplane.bmp --outdir output_folder --block_sizes 16 32 64 128 --qualities 75 100
 
-# python3 test_whole.py images/re-entry.tif images/fanned-out.tif images/irritated.tif images/desert-ribbons.tif images/deep-blue-cubism.tif\ --outdir output_folder \ --block_size 64 \ --quality 20 
+# python3 test_whole.py images/re-entry.tif images/fanned-out.tif images/irritated.tif images/desert-ribbons.tif images/deep-blue-cubism.tif\ --outdir output_folder \ --block_sizes 16 32 64 \ --qualities 20 50 80
