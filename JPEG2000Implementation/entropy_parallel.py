@@ -144,7 +144,7 @@ ACBlock = Tuple[str, int, int, Union[str, int], int, int, int, int, int, bytes, 
 RAWBlock = Tuple[str, int, int, Union[str, int], int, int, int, int, bytes]
 BlockTuple = Union[ACBlock, RAWBlock]
 
-def encode_block(block: Dict) -> BlockTuple:
+def encode_block(block: Dict, pivot: int) -> BlockTuple:
     comp = int(block['component'])
     lvl = int(block['level'])
     bnd = normalize_band(block['band'])
@@ -164,7 +164,7 @@ def encode_block(block: Dict) -> BlockTuple:
     unique_vals = unique_vals_np.astype(int).tolist()
     K = len(unique_vals)
 
-    if K <= 1:
+    if K <= pivot: # pivot shoul dbe an integer larger or equal to 1
     # store the real data; zlib compresses uniform blocks extremely well
         raw_bytes = zlib.compress(data.astype(np.int32, copy=False).tobytes(), level=6)
         return ('raw', comp, lvl, bnd, posy, posx, h, w, raw_bytes)
@@ -234,9 +234,9 @@ def decode_block(tup: BlockTuple) -> Dict:
         'position': (posy, posx), 'shape': [h, w], 'data': data2d,
     }
 
-def entropy_encode_all(blocks: List[Dict], output_path: str):
+def entropy_encode_all(blocks: List[Dict], output_path: str, pivot: int):
     with ProcessPoolExecutor() as executor:
-        encoded = list(executor.map(encode_block, blocks, chunksize=64))
+        encoded = list(executor.map(encode_block, blocks, pivot, chunksize=64))
         
     # encoded = list(map(encode_block, blocks))
     with open(output_path, 'wb') as f:

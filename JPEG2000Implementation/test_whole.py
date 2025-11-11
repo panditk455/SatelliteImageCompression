@@ -49,7 +49,7 @@ def bytes_to_bits(nbytes: int) -> int:
 def compute_ssim(a: np.ndarray, b: np.ndarray) -> float:
     return float(ssim(a, b, channel_axis=-1, data_range=255))
 
-def convert_to_jpeg2000(input_path: str, output_dir: str, quality: int = 75, block_size: int = 64) -> str:
+def convert_to_jpeg2000(input_path: str, output_dir: str, quality: int = 75, block_size: int = 64, pivot: int = 1) -> str:
     os.makedirs(output_dir, exist_ok=True)
     name = os.path.splitext(os.path.basename(input_path))[0]
     bin_path = os.path.join(output_dir, f"{name}.bin")
@@ -63,7 +63,7 @@ def convert_to_jpeg2000(input_path: str, output_dir: str, quality: int = 75, blo
     dwt_coeffs = baseline.DWTAll(colors)
     quantized = quantization.quantize_all(dwt_coeffs, quality)
     part = partition.partition_all(quantized, block_size)
-    entropy_parallel.entropy_encode_all(part, bin_path)
+    entropy_parallel.entropy_encode_all(part, bin_path, pivot)
 
     de_entro = entropy_parallel.entropy_decode_all(bin_path)
     de_part = partition.reverse_partition(de_entro)
@@ -84,13 +84,13 @@ def convert_to_jpeg2000(input_path: str, output_dir: str, quality: int = 75, blo
 
     # print(len(part))
     runtime = time.time() - start
-    print(f"{name} (block {block_size}): Done in {runtime:.3f}s")
+    print(f"{name} (block {block_size}) (quality {quality}) (pivot {pivot}): Done in {runtime:.3f}s")
 
     return bin_path, image_path, runtime
 
 
 # Metrics: 
-def analyze_pair(original_path: str, bin_path: str, compressed_path: str, block_size: int, runtime, quality) -> dict:
+def analyze_pair(original_path: str, bin_path: str, compressed_path: str, block_size: int, runtime, quality, pivot: int) -> dict:
 
     original_bytes = os.path.getsize(original_path)
     compressed_bytes = os.path.getsize(bin_path)
@@ -121,7 +121,7 @@ def analyze_pair(original_path: str, bin_path: str, compressed_path: str, block_
     psnr_db = psnr(mse_val)
     ssim_val = compute_ssim(arr_orig, arr_comp)
 
-    return {"block_size": block_size, "quality": quality, "file": os.path.basename(original_path), "compressed_file": os.path.basename(compressed_path), "original_bits": original_bits,
+    return {"block_size": block_size, "quality": quality, "pivot": pivot, "file": os.path.basename(original_path), "compressed_file": os.path.basename(compressed_path), "original_bits": original_bits,
         "compressed_bits": compressed_bits, "compression_ratio": ratio, "space_savings": savings, "runtime": runtime, "mse": mse_val,  "psnr": psnr_db, "ssim": ssim_val,}
 
 
@@ -148,7 +148,7 @@ def print_table(rows):
     for r in rows:
         print(" | ".join(fmt(r.get(h)).ljust(widths[h]) for h in headers))
 
-
+# Block size experiment graph
 def plot_results(results, outdir):
     import matplotlib.pyplot as plt
     import numpy as np
@@ -167,7 +167,7 @@ def plot_results(results, outdir):
     cmap = plt.colormaps.get_cmap("tab10")
     n_colors = len(grouped)
 
-    # ---- Compression Ratio Plot ----
+    # Compression Ratio Plot
     plt.figure(figsize=(8, 6))
     for i, (fname, vals) in enumerate(grouped.items()):
         color = cmap(i / max(1, n_colors - 1))  # evenly spaced colors
@@ -190,7 +190,7 @@ def plot_results(results, outdir):
     plt.savefig(os.path.join(outdir, "compression_ratio_vs_blocksize.png"), dpi=300)
     plt.close()
 
-    # ---- Runtime Plot ----
+    # Runtime Plot 
     plt.figure(figsize=(8, 6))
     for i, (fname, vals) in enumerate(grouped.items()):
         color = cmap(i / max(1, n_colors - 1))
@@ -215,6 +215,7 @@ def plot_results(results, outdir):
 
     print(f"Saved plots to {outdir}")
 
+# Quality experiment graph
 def plot_results_quality(results, outdir):
     import os
     import matplotlib.pyplot as plt
@@ -233,7 +234,7 @@ def plot_results_quality(results, outdir):
     cmap = plt.colormaps.get_cmap("tab10")
     n_colors = max(1, len(grouped))
 
-    # ---------- Runtime vs Quality ----------
+    # Runtime vs Quality
     plt.figure(figsize=(8, 6))
     for i, (fname, vals) in enumerate(grouped.items()):
         color = cmap(i / max(1, n_colors - 1))
@@ -250,7 +251,7 @@ def plot_results_quality(results, outdir):
     plt.savefig(os.path.join(outdir, "runtime_vs_quality.png"), dpi=300)
     plt.close()
 
-    # ---------- Compression Ratio vs Quality ----------
+    # Compression Ratio vs Quality 
     plt.figure(figsize=(8, 6))
     for i, (fname, vals) in enumerate(grouped.items()):
         color = cmap(i / max(1, n_colors - 1))
@@ -267,7 +268,7 @@ def plot_results_quality(results, outdir):
     plt.savefig(os.path.join(outdir, "compression_ratio_vs_quality.png"), dpi=300)
     plt.close()
 
-    # ---------- PSNR vs Quality ----------
+    # PSNR vs Quality 
     plt.figure(figsize=(8, 6))
     for i, (fname, vals) in enumerate(grouped.items()):
         color = cmap(i / max(1, n_colors - 1))
@@ -293,6 +294,7 @@ def main():
     parser.add_argument("--outdir", required = True)
     parser.add_argument("--block_sizes", nargs = "+", type = int, default = [64])
     parser.add_argument("--qualities", nargs = "+", type = int, default = [75])
+    parser.add_argument("--pivots", nargs = "+", type = int, default = [1])
     args = parser.parse_args()
 
     os.makedirs(args.outdir, exist_ok = True)
@@ -301,12 +303,14 @@ def main():
     for inp in args.inputs:
         for block_size in args.block_sizes:
             for quality in args.qualities:
-                bin_out_path, image_out_path, runtime = convert_to_jpeg2000(inp, args.outdir, quality, block_size)
-                results.append(analyze_pair(inp, bin_out_path, image_out_path, block_size, runtime, quality))
+                for pivot in args.pivots:
+                    bin_out_path, image_out_path, runtime = convert_to_jpeg2000(inp, args.outdir, quality, block_size, pivot)
+                    results.append(analyze_pair(inp, bin_out_path, image_out_path, block_size, runtime, quality, pivot))
 
     print_table(results)
-    # plot_results(results, args.outdir)
+    plot_results(results, args.outdir)
     plot_results_quality(results, args.outdir)
+    # plot_results_pivot()
 
 
 if __name__ == "__main__":
@@ -314,6 +318,6 @@ if __name__ == "__main__":
 
 # type for the purpose of testing:
     
-# python3 test_whole.py images/airplane.bmp --outdir output_folder --block_sizes 16 32 64 128 --qualities 75 100
+# python3 test_whole.py images/airplane.bmp --outdir output_folder --block_sizes 16 32 64 128 --qualities 75 100 --pivots 1 5 10
 
-# python3 test_whole.py images/re-entry.tif images/fanned-out.tif images/irritated.tif images/desert-ribbons.tif images/deep-blue-cubism.tif\ --outdir output_folder \ --block_sizes 16 32 64 \ --qualities 20 50 80
+# python3 test_whole.py images/re-entry.tif images/fanned-out.tif images/irritated.tif images/desert-ribbons.tif images/deep-blue-cubism.tif --outdir output_folder --block_sizes 16 32 64 --qualities 20 50 80 --pivots 1 5 10
