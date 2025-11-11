@@ -149,7 +149,7 @@ def print_table(rows):
         print(" | ".join(fmt(r.get(h)).ljust(widths[h]) for h in headers))
 
 # Block size experiment graph
-def plot_results(results, outdir):
+def plot_results_blocksize(results, outdir):
     import matplotlib.pyplot as plt
     import numpy as np
 
@@ -287,6 +287,77 @@ def plot_results_quality(results, outdir):
 
     print(f"Saved quality plots to {outdir}")
 
+def plot_results_pivot(results, outdir):
+    import os
+    import matplotlib.pyplot as plt
+
+    # Group results by image filename
+    grouped = {}
+    for r in results:
+        fname = r["file"]
+        grouped.setdefault(fname, []).append(r)
+
+    # Sort each group by pivot for consistent plotting
+    for fname in grouped:
+        grouped[fname].sort(key=lambda x: x["pivot"])
+
+    cmap = plt.colormaps.get_cmap("tab10")
+    n_colors = max(1, len(grouped))
+
+    # Runtime vs Pivot
+    plt.figure(figsize=(8, 6))
+    for i, (fname, vals) in enumerate(grouped.items()):
+        pivots = [v["pivot"] for v in vals]
+        runtimes = [v["runtime"] for v in vals]
+        color = cmap(i / max(1, n_colors - 1))
+        plt.plot(pivots, runtimes, marker="s", linewidth=2, markersize=6, color=color, label=fname)
+
+    plt.xlabel("Pivot", fontsize=12)
+    plt.ylabel("Runtime (seconds)", fontsize=12)
+    plt.title("Runtime vs Pivot", fontsize=14, fontweight="bold")
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.legend(title="Image", loc="best", fontsize=10)
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir, "runtime_vs_pivot.png"), dpi=300)
+    plt.close()
+
+    # PSNR vs Pivot
+    plt.figure(figsize=(8, 6))
+    for i, (fname, vals) in enumerate(grouped.items()):
+        pivots = [v["pivot"] for v in vals]
+        psnrs = [v["psnr"] for v in vals]
+        color = cmap(i / max(1, n_colors - 1))
+        plt.plot(pivots, psnrs, marker="^", linewidth=2, markersize=6, color=color, label=fname)
+
+    plt.xlabel("Pivot", fontsize=12)
+    plt.ylabel("PSNR (dB)", fontsize=12)
+    plt.title("PSNR vs Pivot", fontsize=14, fontweight="bold")
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.legend(title="Image", loc="best", fontsize=10)
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir, "psnr_vs_pivot.png"), dpi=300)
+    plt.close()
+
+    # Compression Ratio vs Pivot
+    plt.figure(figsize=(8, 6))
+    for i, (fname, vals) in enumerate(grouped.items()):
+        pivots = [v["pivot"] for v in vals]
+        ratios = [v["compression_ratio"] for v in vals]
+        color = cmap(i / max(1, n_colors - 1))
+        plt.plot(pivots, ratios, marker="o", linewidth=2, markersize=6, color=color, label=fname)
+
+    plt.xlabel("Pivot", fontsize=12)
+    plt.ylabel("Compression Ratio (compressed/original)", fontsize=12)
+    plt.title("Compression Ratio vs Pivot", fontsize=14, fontweight="bold")
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.legend(title="Image", loc="best", fontsize=10)
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir, "compression_ratio_vs_pivot.png"), dpi=300)
+    plt.close()
+
+    print(f"Saved pivot plots to {outdir}")
+
+
 
 def main():
     parser = argparse.ArgumentParser(description = "Convert other form of images to JPEG and JPEG2000.")
@@ -308,9 +379,9 @@ def main():
                     results.append(analyze_pair(inp, bin_out_path, image_out_path, block_size, runtime, quality, pivot))
 
     print_table(results)
-    plot_results(results, args.outdir)
-    plot_results_quality(results, args.outdir)
-    # plot_results_pivot()
+    # plot_results_blocksize(results, args.outdir)
+    # plot_results_quality(results, args.outdir)
+    plot_results_pivot(results, args.outdir)
 
 
 if __name__ == "__main__":
