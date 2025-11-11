@@ -110,6 +110,7 @@ from typing import List, Dict, Tuple, Union
 import pickle
 import numpy as np
 import zlib
+from itertools import repeat
 from concurrent.futures import ProcessPoolExecutor
 from arithmetic_compressor import AECompressor
 from arithmetic_compressor.models import BaseFrequencyTable
@@ -234,9 +235,9 @@ def decode_block(tup: BlockTuple) -> Dict:
         'position': (posy, posx), 'shape': [h, w], 'data': data2d,
     }
 
-def entropy_encode_all(blocks: List[Dict], output_path: str, pivot: int):
+def entropy_encode_all(blocks: List[Dict], output_path: str, pivot: List[int]):
     with ProcessPoolExecutor() as executor:
-        encoded = list(executor.map(encode_block, blocks, pivot, chunksize=64))
+        encoded = list(executor.map(encode_block, blocks, repeat(pivot), chunksize=64))
         
     # encoded = list(map(encode_block, blocks))
     with open(output_path, 'wb') as f:
