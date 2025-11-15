@@ -88,11 +88,8 @@ class CompressionEvaluator:
         decode_time = (time.time() - decode_start) * 1000
         #---------------------------------------------------
         decompressed_array = np.array(decompressed_img)
-
-        luma_timings = meta['Y'].get('timings_ms', {})
-        luma_entropies = meta['Y'].get('entropies', {})
         
-        return decompressed_array, compressed_size_bytes, encode_time, decode_time, luma_timings, luma_entropies
+        return decompressed_array, compressed_size_bytes, encode_time, decode_time
     
     def calculate_mse(self, original, compressed):
         return mean_squared_error(original, compressed)
@@ -184,7 +181,7 @@ class CompressionEvaluator:
         self.csv_rows.append(row)
 
 
-    def evaluate_dataset(self, image_folder, jpeg_qualities, quantization_methods, chroma_methods):
+    def evaluate_dataset(self, image_folder, jpeg_qualities, quantization_methods, chroma_methods, collect_stats_for=False):
         """
         Evaluate all images in a folder
         """
@@ -201,13 +198,14 @@ class CompressionEvaluator:
         
         for path in image_paths:
             for jpeg_quality in jpeg_qualities:
-                
                 for quant_method in quantization_methods:
-                    configs.append({
-                        'image_path': str(path),
-                        'quality': jpeg_quality,
-                        'quantization_method': quant_method,
-                        'chroma_method': 'nearest',
+                    for chroma_method in chroma_methods:
+                        configs.append({
+                            'image_path': str(path),
+                            'quality': jpeg_quality,
+                            'quantization_method': quant_method,
+                            'chroma_method': chroma_method,
+                            'collect_stats_for': collect_stats_for
                     })
                 
         
@@ -266,6 +264,7 @@ if __name__ == "__main__":
         test_folder,
         jpeg_qualities,
         quantization_methods,
-        chroma_methods
+        chroma_methods,
+        collect_stats_for = True
     ) 
     print(f"Evaluation complete.")
