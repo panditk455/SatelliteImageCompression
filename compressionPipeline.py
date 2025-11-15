@@ -1,23 +1,11 @@
 """
-JPEG Full pipeline
+JPEG Full pipeline implementation: color space conversion, chroma subsampling, DCT, quantization, and entropy coding.
 Authors: Kritika Pandit, Anika Rajbhandary
-
-Starting a log (10/27/25)
-10/27/25:
- - Noticed a bug, getting error: "all input arrays must have the same shape", where when recombining Y, Cb, Cr channels
-   after upsampling, the Y channel was slightly larger than Cb/Cr due to odd image dimensions. Using cv2 resizing using
-   either average or nearest neighbor to upsample chroma channels to exactly match Y channel dimensions. (Is this too abstracted?)  
- - Added functions to pack/unpack bitstrings to/from bytes to better follow actual compression process and also more accurately
-   measure compressed size in bits.
- - Added some partitioning comments for organization.
 """
-
 import argparse
 from typing import List, Tuple, Dict, Any
 import numpy as np
 from PIL import Image
-from scipy.fft import dct, idct
-from scipy.fftpack import dct, idct
 import cv2
 
 # Color & Subsampling ---------------------------------------------
@@ -43,36 +31,29 @@ def rgb_to_ycbcr_arrays(img: Image.Image):
     Y, Cb, Cr = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
     return Y, Cb, Cr
 
-def downsample_420(channel_2d: np.ndarray, method = "nearest"):
+def downsample_420(channel_u8: np.ndarray, method: str = "nearest") -> np.ndarray:
     """
-    Reducing the resolution of a color (chroma) channel using 4:2:0 subsampling.
-    Effect: width and height are both cut in half ( keep 1 out of 4 pixels).
-    This throws away some color detail to save space
-    because our eyes care more about brightness than color sharpness.
+    4:2:0 chroma downsampling: reduce width and height by 2.
+    method:
+      - 'nearest' : pick nearest neighbor (fast; sharp)
+      - 'average' : area/box filter (smoother; slightly better quality)
+      - '444'     : no downsampling (pass-through)
+    """
+    if method == "444":
+        return channel_u8
 
-    2 methods were implemented, which will  be used in analysis:
-      - "nearest": pick one pixel out of each 2x2 block (fastest, simplest)
-      - "average": average each 2x2 block (smoother, slightly better quality)
-      
-    """
-    
-    H, W = channel_2d.shape
-    
-    # Make sizes even so 2x2 blocks fit
-    H_even, W_even = H - (H % 2), W - (W % 2)
-    c = channel_2d[:H_even, :W_even]
+    H, W = channel_u8.shape
+    # Target 4:2:0 size is roughly half in both dims (OpenCV picks exact sizes cleanly)
+    target_w = max(1, W // 2)
+    target_h = max(1, H // 2)
 
     if method == "nearest":
-        # Take every other row and column -> halves size
-        return c[::2, ::2]
-    
+        return cv2.resize(channel_u8, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
     elif method == "average":
-        
-        # Group into 2x2 blocks and average each block into one value
-        c4 = c.reshape(H_even // 2, 2, W_even // 2, 2)
-        return c4.mean(axis=(1, 3)).astype(np.uint8)
+        # INTER_AREA is OpenCV’s go-to for downsampling (box-like averaging)
+        return cv2.resize(channel_u8, (target_w, target_h), interpolation=cv2.INTER_AREA)
     else:
-        raise ValueError("the method must be 'nearest' or 'average', use one of them!")
+        raise ValueError("downsample_420 method must be 'nearest', 'average', or '444'")
 
 def upsample_nn(channel_small: np.ndarray, target_shape: Tuple[int, int], method = "nearest"):
     """
@@ -84,27 +65,38 @@ def upsample_nn(channel_small: np.ndarray, target_shape: Tuple[int, int], method
     """
     H_target, W_target = target_shape
 
+    # If already correct size (e.g., 4:4:4), just return
+    if channel_small.shape == (H_target, W_target):
+        return channel_small
+
     if method == "nearest":
-        up = cv2.resize(
-            channel_small, 
-            (W_target, H_target),
-            interpolation=cv2.INTER_NEAREST
-        )
-    elif method == "average":
-        up = cv2.resize(
-            channel_small, 
-            (W_target, H_target),
-            interpolation=cv2.INTER_LINEAR
-        )
-    return up
+        return cv2.resize(channel_small, (W_target, H_target), interpolation=cv2.INTER_NEAREST)
+    
+    elif method == "average" or method == "444":  # treat 444 like linear when resizing (won't be hit if sizes match)
+        return cv2.resize(channel_small, (W_target, H_target), interpolation=cv2.INTER_LINEAR)
+    else:
+        raise ValueError("method must be 'nearest', 'average', or '444'")
+    
 
 def ycbcr_to_rgb_image(Y, Cb, Cr):
     """
     Combine Y, Cb, and Cr 2D arrays back into a single image and convert
     from YCbCr color space to standard RGB for saving/viewing.
     """
+    # Ensure channels are uint8
+    Y = np.clip(Y, 0, 255).astype(np.uint8)
+    Cb = np.clip(Cb, 0, 255).astype(np.uint8)
+    Cr = np.clip(Cr, 0, 255).astype(np.uint8)
+
     ycbcr = np.stack([Y, Cb, Cr], axis = 2).astype(np.uint8)
     return Image.fromarray(ycbcr, mode = "YCbCr").convert("RGB")
+
+def save_channel_as_grayscale_png(array, filename):
+    """Scales array data to 0-255 and saves as a grayscale PNG."""
+    # Ensure array is in the 0-255 range for proper visualization
+    scaled_array = np.clip(array, 0, 255).astype(np.uint8)
+    img = Image.fromarray(scaled_array, mode='L')
+    img.save(filename)
 
 # DCT and Quantization ---------------------------------------------
 
@@ -140,6 +132,10 @@ chroma_quantization_table = np.array([
     [99, 99, 99, 99, 99, 99, 99, 99],
     [99, 99, 99, 99, 99, 99, 99, 99]
 ])
+
+
+# Flat Quantization Table for experiment
+flat_quantization_table = np.full((8, 8), 99)
 
 # Quality scaling for QTables
 def scale_qtable(base_qt: np.ndarray, quality: int) -> np.ndarray:
@@ -244,37 +240,102 @@ def merge_blocks_8x8(blocks: List[List[np.ndarray]], dims: Tuple[int, int]) -> n
             out[i*8 : (i+1)*8, j*8 : (j+1)*8] = blocks[i][j]
     return out
 
-def dct_2d(block: np.ndarray) -> np.ndarray:
-    """
-    2D DCT (type-II, 'ortho' normalized) on an 8x8 block.
-    JPEG transforms each 8x8 block into frequency space:
-      - top-left = low frequency (average/slow changes)
-      - bottom-right = high frequency (fine detail/noise)
-    Doing rows then columns is equivalent to a full 2D DCT.
-    """
-    # Ensuring the float to avoid integer rounding during transform
-    block = block.astype(np.float32)
-    # Applying DCT to columns (axis =0), then to rows (axis=1)
-    
-    # the norm='ortho' tells NumPy or SciPy to use orthonormal normalization
-    # i.e., to scale the transform so that the DCT and its inverse (IDCT)
-    # are perfect inverses of each other without needing extra scaling factors.
-    
-    return dct(dct(block, type = 2, norm = 'ortho', axis = 0),
-               type = 2, norm = 'ortho', axis = 1)
+N = 8
 
-def idct_2d(block: np.ndarray) -> np.ndarray:
+
+def get_fixed_dct_factors(N: int) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Inverse 2D DCT (type-II, 'ortho' normalized).
-    Converts frequency coefficients back to spatial pixel values.
-    https://docs.scipy.org/doc/scipy/reference/generated/scipy.fftpack.dct.html#scipy.fftpack.dct 
+    Factors and cosine basis for more efficient DCT/IDCT computation.
+
+    For context, the 1D DCT formula is:
+        DCT[u] = C(u) * sum_{x=0}^{N-1} signal[x] * cos[(2x + 1) * u * pi / (2N)]
+
+        where C(u) is the scaling factor:
+            C(0) = 1/sqrt(N)
+            C(u) = sqrt(2/N) for u > 0
+    N is 8 in JPEG
     """
+    # Using the same 8 basis functions for all rows/columns
+    factors = np.zeros(N)
+    # C(u): C(0)=1/sqrt(N), C(u)=sqrt(2/N) for u>0
+    factors[0] = 1.0 / np.sqrt(N)
+    factors[1:] = np.sqrt(2.0 / N)
     
-    return idct(idct(block, type = 2, norm = 'ortho', axis = 0),
-                type = 2, norm = 'ortho', axis = 1)
+    # Cosine basis functions (still needs to be multiplied with input signal later)
+    cos_basis = np.zeros((N, N))
+    for u in range(N):
+        for x in range(N):
+            cos_basis[u, x] = np.cos((2 * x + 1) * u * np.pi / (2 * N))
+    return factors, cos_basis
+
+# Constants for DCT/IDCT
+SCALING_FACTORS, COSINE_BASIS = get_fixed_dct_factors(N)
+
+def apply_1d_dct(signal: np.ndarray) -> np.ndarray:
+    """
+    Computes the 1D Discrete Cosine Transform (DCT) for a 1D signal (row or column).
+    Uses the pre-calculated COSINE_BASIS and SCALING_FACTORS.
+    """
+    l = len(signal)
+    output = np.zeros(l)
+    vector = signal.astype(np.float64)
+
+    for u in range(l):
+        # Calculate the dot product of signal and bases function for frequency u
+        sum_val = np.sum(vector * COSINE_BASIS[u, :])
+        # Apply the pre-calculated scaling factor
+        output[u] = SCALING_FACTORS[u] * sum_val
+    return output
+
+def DCT_2d(signal: np.ndarray) -> np.ndarray:
+    """
+    Two passes of 1D DCT to compute the 2D DCT using the separability property.
+    """
+    signal = signal.astype(np.float64)
+
+    # Apply 1D DCT to each row
+    res = np.apply_along_axis(apply_1d_dct, axis=1, arr=signal)
+
+    # Transpose (flip) and apply to columns
+    res = res.T
+    res = np.apply_along_axis(apply_1d_dct, axis=1, arr=res)
+
+    # Transpose back to the original
+    return res.T
+
+
+def dct_inv_1d(signal: np.ndarray) -> np.ndarray:
+    """
+    Computes the 1D Inverse Discrete Cosine Transform (IDCT) for an 8-element vector.
+
+    Equation for 1D Inverse DCT:
+        signal[x] = sum_{u=0}^{N-1} C(u) * DCT[u] * cos[(2x + 1) * u * pi / (2N)]
+    """
+    l = len(signal)
+    res = np.zeros(l)
+    for x in range(l):
+        # Sum(C(u) * signal[u] * cos[u, x])
+        sum_terms = SCALING_FACTORS * signal * COSINE_BASIS[:, x]
+        res[x] = np.sum(sum_terms)
+        
+    return res
+
+def IDCT_2d(coefficients: np.ndarray) -> np.ndarray:
+    """
+    Computes the 2D IDCT using the separable property (two passes of 1D IDCT).
+    """
+    coefficients = coefficients.astype(np.float64)
+    res = np.apply_along_axis(dct_inv_1d, axis=1, arr=coefficients)
+
+    # np transpose the result to apply to columns
+    res = res.T
+    res = np.apply_along_axis(dct_inv_1d, axis=1, arr=res)
+    return res.T
+
 
 def quantize(dct_block, qtable):
     """
+    Standard Uniform Scalar Quantization (USQ).
     Quantize a DCT 8x8 block by dividing each coefficient by a matching
     number from the 8x8 quantization table, then rounding to integers.
     Bigger table values → more aggressive compression (more loss).
@@ -283,11 +344,76 @@ def quantize(dct_block, qtable):
 
 def dequantize(quantized_block, qtable):
     """
+    Standard USQ Dequantization.
     Reverse quantization by multiplying the integer coefficients back
     by the quantization table. This approximates the original DCT block,
     but the earlier rounding means some detail is permanently lost.
     """
     return (quantized_block * qtable).astype(np.float32)
+
+def quantize_deadzone(dct_block, qtable):
+    """
+    Potential optimization of USQ called Uniform Scalar Deadzone Quantization (USDZQ).
+    Uses non-uniform bins to reduce more small coefficient values to zero.
+    
+    As described in the paper: https://ieeexplore.ieee.org/document/1346303
+    [-T, T] maps to 0
+    [T, 3d) maps to 1
+    [-3d, -T) maps to -1
+    (2k-1)d to (2k+1)d otherwise
+    """
+    # d is half the quantization step size
+    d = qtable.astype(np.float32) / 2.0
+    
+    # threshold t, we quantize [-t, t] to zero
+    t = d / 0.775 
+    
+    # Separating sign and magnitude makes logic easier
+    sign = np.sign(dct_block)
+    magnitude = np.abs(dct_block)
+    
+    # Initialize quantized magnitude array all zeros
+    quantized_mag = np.zeros_like(magnitude, dtype=int)
+
+    # If the magnitude (DCT coefficient) is >=t but <3d, quantize to bin (value) 1
+    mask_1 = (magnitude >= t) & (magnitude < 3*d)
+    # np syntax to set values where mask is true
+    quantized_mag[mask_1] = 1
+
+    # magnitude >= 3d, quantize using normal bins
+    mask_k = (magnitude >= 3*d)
+    quantized_mag[mask_k] = np.floor((magnitude[mask_k] - d[mask_k]) / (2 * d[mask_k])) + 1
+
+    return (sign * quantized_mag).astype(int)
+
+def dequantize_deadzone(quantized_block, qtable):
+    """
+    USDZQ Dequantization.
+    Reconstructs coefficients based on the bins.
+    Information loss step because values in same bin map to the same quantized value.
+    """
+    k = quantized_block.astype(np.float32)
+    d = qtable.astype(np.float32) / 2.0
+    
+    t = d / 0.775
+    
+    reconstructed_dct = np.zeros_like(k, dtype=np.float32)
+    
+    # Reconstructing the DCT coefficients based on quantized value k
+    # midpoint of the bin range is used
+    mask_1 = (k == 1)
+    reconstructed_dct[mask_1] = (t[mask_1] + 3*d[mask_1]) / 2.0
+    
+    mask_n1 = (k == -1)
+    reconstructed_dct[mask_n1] = (-3*d[mask_n1] - t[mask_n1]) / 2.0
+    
+    mask_pos_k = (k > 1)
+    reconstructed_dct[mask_pos_k] = 2 * k[mask_pos_k] * d[mask_pos_k] 
+    
+    mask_neg_k = (k < -1)
+    reconstructed_dct[mask_neg_k] = 2 * k[mask_neg_k] * d[mask_neg_k]
+    
+    return reconstructed_dct.astype(np.float32)
 
 # Zig-Zag and RLE (Start of Entropy Encoding) ---------------------------------------------
 
@@ -576,14 +702,16 @@ def unpack_bytes_to_bitstring(packed_bytes: bytes, num_bits: int) -> str:
 
 # Channel encode/decode helper methods ---------------------------------------------
 
-def encode_channel(channel_u8: np.ndarray, base_qt: np.ndarray, quality: int, print_first_block: bool = False) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+def encode_channel(channel_u8: np.ndarray, base_qt: np.ndarray, quality: int, 
+                   quantization_method: str = "standard", 
+                   print_first_block: bool = False) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     Encode a single channel (Y, Cb or Cr) all the way to a Huffman-compressed bitstring.
 
     Steps per 8x8 block:
       1) Shift by -128 (center around 0) -> 
       2) DCT -> 
-      3) Quantize (quality-scaled table)
+      3) Quantize (quality-scaled table, selectable method)
       4) Zig-zag reorder ->>
       5) RLE 
     After all blocks: build Huffman codes from token frequencies and encode the stream.
@@ -594,7 +722,8 @@ def encode_channel(channel_u8: np.ndarray, base_qt: np.ndarray, quality: int, pr
           'huffman_codes',                   # dict repr(symbol) -> bits
           'bitstring',                       # compressed token stream
           'dc_init',                         # baseline = 0
-          'qtable'                           # the   8x8 quantization table (as list of lists)
+          'qtable',                          # the   8x8 quantization table (as list of lists)
+          'quantization_method'              # 'standard' or 'deadzone'
           }
     """
     
@@ -611,32 +740,51 @@ def encode_channel(channel_u8: np.ndarray, base_qt: np.ndarray, quality: int, pr
     # Scaling the quantization table by requested quality
     qtable = scale_qtable(base_qt, quality)
 
+    # Dictionary to store entropy metrics
+    entropies: Dict[str, float] = {
+        "quant_coeff_entropy_bits_per_coeff": 0.0
+    }
+    
+    qtable_base = scale_qtable(base_qt, quality)
+
     # Collect all tokens from all blocks to get the good of a Huffman codes
     all_tokens: List[Any] = []
+    # Collect all quantized coefficients for entropy calculation
+    all_coeffs_flat: List[int] = []
     prev_dc = 0  # for DC differential coding across blocks
 
     for bi in range(h_blocks):
         for bj in range(w_blocks):
-            block = blocks[bi][bj].astype(np.float32) - 128.0  # center around 0,  -128
+            block_original = blocks[bi][bj].astype(np.float32)
+            
+            block = block_original - 128.0  # center around 0,  -128
 
-            if bi == 0 and bj == 0 and print_first_block:
+            if bi == 100 and bj == 100 and print_first_block:
                 debug["orig_block"] = blocks[bi][bj].copy()
                 debug["shifted_block"] = block.copy()
-
-            dct_block = dct_2d(block)
-            if bi == 0 and bj == 0 and print_first_block:
+                        
+            block_qtable = qtable_base
+            dct_block = DCT_2d(block)
+            
+            if bi == 100 and bj == 100 and print_first_block:
                 debug["dct_block"] = dct_block.copy()
 
-            q_block = quantize(dct_block, qtable)
+            if quantization_method == "deadzone":
+                q_block = quantize_deadzone(dct_block, block_qtable)
+            else: # "standard" or "flat" (which just changes the table)
+                q_block = quantize(dct_block, block_qtable)
+
             if bi == 0 and bj == 0 and print_first_block:
                 debug["quantized_block"] = q_block.copy()
 
-            zz = zigzag_flat(q_block)
-            tokens, prev_dc = rle_encode_block(zz, prev_dc)
+            zz_coeffs = zigzag_flat(q_block)
+            
+            # Store flat coefficients for entropy
+            all_coeffs_flat.extend(zz_coeffs)
+            tokens, prev_dc = rle_encode_block(zz_coeffs, prev_dc)
             all_tokens.extend(tokens)
-
-    # Getting the  Huffman codes for this channel and encode the token stream
     
+    # Getting the  Huffman codes for this channel and encode the token stream
     huff_codes = build_huffman_codes(all_tokens)
     bitstring_str = huffman_encode(all_tokens, huff_codes)
 
@@ -651,7 +799,9 @@ def encode_channel(channel_u8: np.ndarray, base_qt: np.ndarray, quality: int, pr
         "packed_bitstream": packed_bytes,
         "num_bits": num_bits,
         "dc_init": 0,
-        "qtable": qtable.tolist() }
+        "qtable": qtable.tolist(),
+        "quantization_method": quantization_method,
+        }
     return meta, debug
 
 
@@ -667,15 +817,17 @@ def decode_channel(meta: Dict[str, Any], print_first_block: bool = False) -> np.
     padded_shape = tuple(meta["padded_shape"]) 
     huff_codes: Dict[str, str] = meta["huffman_codes"]
     qtable = np.array(meta["qtable"], dtype=int)
+    qtable_base = np.array(meta["qtable"], dtype=int)
     packed_bytes: bytes = meta["packed_bitstream"]
     num_bits: int = meta["num_bits"]
+    quantization_method: str = meta.get("quantization_method", "standard")
+
 
     # Unpack bytes to bitstring
     bitstring = unpack_bytes_to_bitstring(packed_bytes, num_bits)
 
     # Huffman decode to token stream
     tokens = huffman_decode(bitstring, huff_codes)
-
     # Rebuilding the  8×8 blocks from tokens
     blocks: List[List[np.ndarray]] = []
     prev_dc = 0
@@ -686,6 +838,7 @@ def decode_channel(meta: Dict[str, Any], print_first_block: bool = False) -> np.
     for bi in range(h_blocks):
         row: List[np.ndarray] = []
         for bj in range(w_blocks):
+            block_qtable = qtable_base
             
             # Each block must start with a DC token, the first (left-top) value in the grid
             if t_idx >= len(tokens) or tokens[t_idx][0] != 'DC':
@@ -714,8 +867,13 @@ def decode_channel(meta: Dict[str, Any], print_first_block: bool = False) -> np.
 
             # Placing it  back into 8×8, dequantize, inverse DCT, re-center and back to the RGB
             q_block = izigzag_flat(coeffs)
-            deq = dequantize(q_block, qtable)
-            spatial = idct_2d(deq) + 128.0
+            
+            if quantization_method == "deadzone":
+                deq = dequantize_deadzone(q_block, block_qtable)
+            else:
+                deq = dequantize(q_block, block_qtable)
+
+            spatial = IDCT_2d(deq) + 128.0
             spatial = np.clip(spatial, 0, 255)
 
             if bi == 0 and bj == 0 and print_first_block:
@@ -735,7 +893,7 @@ def decode_channel(meta: Dict[str, Any], print_first_block: bool = False) -> np.
 
 # Full JPEG encode /decode pipelines ---------------------------------------------
 
-def jpeg_encode_pipeline(input_path, quality = 50, chroma_method = "nearest", show_first_block = True):
+def jpeg_encode_pipeline(source, config, show_first_block=False):    
     """
     Loading the  RGB
     RGB -> YCbCr
@@ -743,18 +901,42 @@ def jpeg_encode_pipeline(input_path, quality = 50, chroma_method = "nearest", sh
     DCT -> Quantize -> ZigZag -> RLE -> Huffman
     This function returns a dict  with three per-channel streams + image geometry that will help for it to be reconstructed.
     """
-    img = ensure_rgb(Image.open(input_path))
+
+    quality = config['quality']
+    quantization_method = config['quantization_method']
+    chroma_method = config['chroma_method']
+
+    if isinstance(source, str):
+        img = ensure_rgb(Image.open(source))
+    elif isinstance(source, Image.Image):
+        img = ensure_rgb(source)
+    else:
+        raise ValueError(f"source must be a file path (str) or PIL.Image object, but got {type(source)}")
+
     Y, Cb, Cr = rgb_to_ycbcr_arrays(img)
+
     H, W = Y.shape
 
     # Subsample chroma
     Cb_ds = downsample_420(Cb, chroma_method)
     Cr_ds = downsample_420(Cr, chroma_method)
 
-    # Encode channels separately
-    y_meta, y_dbg = encode_channel(Y, luma_quantization_table, quality, print_first_block = show_first_block)
-    cb_meta, _ = encode_channel(Cb_ds, chroma_quantization_table, quality, print_first_block = False)
-    cr_meta, _ = encode_channel(Cr_ds, chroma_quantization_table, quality, print_first_block = False)
+    if quantization_method == "standard" or quantization_method == "deadzone":
+        y_base_table = luma_quantization_table
+        c_base_table = chroma_quantization_table
+    else:
+        y_base_table = flat_quantization_table
+        c_base_table = flat_quantization_table
+
+    y_meta, y_dbg = encode_channel(Y, y_base_table, quality, 
+                                   quantization_method=quantization_method,
+                                   print_first_block=show_first_block)
+    cb_meta, _ = encode_channel(Cb_ds, c_base_table, quality, 
+                                quantization_method=quantization_method,
+                                print_first_block=False)
+    cr_meta, _ = encode_channel(Cr_ds, c_base_table, quality, 
+                                quantization_method=quantization_method,
+                                print_first_block=False)
 
     # This is foer tbe debugging purpose only as it  prints for the very first Y block
     if show_first_block:
@@ -769,7 +951,13 @@ def jpeg_encode_pipeline(input_path, quality = 50, chroma_method = "nearest", sh
         "quality": quality,
         "Y": y_meta,
         "Cb": cb_meta,
-        "Cr": cr_meta }
+        "Cr": cr_meta, 
+        "Y_original": Y,
+        "Cb_original": Cb_ds,
+        "Cr_original": Cr_ds,
+        "config": config
+        }
+    
     return meta
 
 def jpeg_decode_pipeline(meta: Dict[str, Any]) -> Image.Image:
@@ -780,35 +968,38 @@ def jpeg_decode_pipeline(meta: Dict[str, Any]) -> Image.Image:
     """
     W, H = meta["width"], meta["height"]
 
+
     Y = decode_channel(meta["Y"], print_first_block=True)
     Cb_ds = decode_channel(meta["Cb"])
     Cr_ds = decode_channel(meta["Cr"])
 
-    # Upsampling the  chroma back to Y size
+    # Upsampling the chroma back to Y size
     Cb = upsample_nn(Cb_ds, (H, W), meta["chroma_method"])
     Cr = upsample_nn(Cr_ds, (H, W), meta["chroma_method"])
-
-
-    img = ycbcr_to_rgb_image(Y, Cb, Cr)
-    return img
-
-
-# Main methods that runs all of the code, does the encoding as well as the decoding !
+    
+    return ycbcr_to_rgb_image(Y, Cb, Cr)
 
 def main():
     parser = argparse.ArgumentParser(description="JPEG Pipeline")
     parser.add_argument("input", help = "Input image (bmp, tif, jpg, png, etc. any raw file which are large in size)")
     
     parser.add_argument("--quality", type  = int, default = 50, help = "Quality (1-95))")
-    parser.add_argument("--method", choices=["nearest", "average"], default = "nearest", help = "Chroma 4:2:0 downsampling method, choose one of them")
+    parser.add_argument("--method", choices=["nearest", "average", "444"], default = "nearest", help = "Chroma 4:2:0 downsampling method, choose one of them")
+    parser.add_argument("--qmethod", choices=["standard", "deadzone", "flat"], default="standard", help="Quantization method (standard USQ, deadzone USDZQ, or flat)")
     parser.add_argument("--out", default = "reconstructed_image.png", help = "Output: reconstructed RGB image")
     args = parser.parse_args()
+    
+    test_config = {
+        'quality': args.quality,
+        'quantization_method': args.qmethod,
+        'chroma_method': args.method
+    }
 
-    meta = jpeg_encode_pipeline(args.input, quality = args.quality, chroma_method = args.method, show_first_block = True)
+    meta = jpeg_encode_pipeline(args.input, config=test_config, show_first_block = True)
     recon = jpeg_decode_pipeline(meta)
     recon.save(args.out)
 
-    print(f"\nSaved reconstructed image is saved in the file, look at it{args.out}")
+    print(f"\nSaved reconstructed image is saved in the file {args.out}")
 
 if __name__ == "__main__":
     main()
