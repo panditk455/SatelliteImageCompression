@@ -307,6 +307,7 @@ def DCT_2d(signal: np.ndarray) -> np.ndarray:
 def dct_inv_1d(signal: np.ndarray) -> np.ndarray:
     """
     Computes the 1D Inverse Discrete Cosine Transform (IDCT) for an 8-element vector.
+    Uses the pre-calculated factors for O(N) efficiency.
 
     Equation for 1D Inverse DCT:
         signal[x] = sum_{u=0}^{N-1} C(u) * DCT[u] * cos[(2x + 1) * u * pi / (2N)]
@@ -704,7 +705,7 @@ def unpack_bytes_to_bitstring(packed_bytes: bytes, num_bits: int) -> str:
 
 def encode_channel(channel_u8: np.ndarray, base_qt: np.ndarray, quality: int, 
                    quantization_method: str = "standard", 
-                   print_first_block: bool = False) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+                   print_first_block: bool = False, collect_stats: bool = False) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     Encode a single channel (Y, Cb or Cr) all the way to a Huffman-compressed bitstring.
 
@@ -739,49 +740,65 @@ def encode_channel(channel_u8: np.ndarray, base_qt: np.ndarray, quality: int,
 
     # Scaling the quantization table by requested quality
     qtable = scale_qtable(base_qt, quality)
-
-    # Dictionary to store entropy metrics
-    entropies: Dict[str, float] = {
-        "quant_coeff_entropy_bits_per_coeff": 0.0
-    }
     
-    qtable_base = scale_qtable(base_qt, quality)
-
     # Collect all tokens from all blocks to get the good of a Huffman codes
     all_tokens: List[Any] = []
     # Collect all quantized coefficients for entropy calculation
     all_coeffs_flat: List[int] = []
     prev_dc = 0  # for DC differential coding across blocks
 
+    # Stats containers
+    stats = None
+    if collect_stats:
+        stats = {
+            "num_blocks": 0,
+            "occupancy_counts": np.zeros((8, 8), dtype=np.int64),  # count of non-zero per (u,v)
+            "zero_run_hist": {}  # run_length -> count
+        }
+
+        def _accum_zero_runs(ac_coeffs_63: List[int]):
+            run = 0
+            for v in ac_coeffs_63:
+                if v == 0:
+                    run += 1
+                else:
+                    if run > 0:
+                        stats["zero_run_hist"][run] = stats["zero_run_hist"].get(run, 0) + 1
+                        run = 0
+            if run > 0:
+                stats["zero_run_hist"][run] = stats["zero_run_hist"].get(run, 0) + 1
+
     for bi in range(h_blocks):
         for bj in range(w_blocks):
-            block_original = blocks[bi][bj].astype(np.float32)
-            
-            block = block_original - 128.0  # center around 0,  -128
+            block = blocks[bi][bj].astype(np.float32) - 128.0
 
-            if bi == 100 and bj == 100 and print_first_block:
+            if bi == 0 and bj == 0 and print_first_block:
                 debug["orig_block"] = blocks[bi][bj].copy()
                 debug["shifted_block"] = block.copy()
-                        
-            block_qtable = qtable_base
+
             dct_block = DCT_2d(block)
-            
-            if bi == 100 and bj == 100 and print_first_block:
+            if bi == 0 and bj == 0 and print_first_block:
                 debug["dct_block"] = dct_block.copy()
 
             if quantization_method == "deadzone":
-                q_block = quantize_deadzone(dct_block, block_qtable)
-            else: # "standard" or "flat" (which just changes the table)
-                q_block = quantize(dct_block, block_qtable)
-
+                q_block = quantize_deadzone(dct_block, qtable)
+            else:
+                q_block = quantize(dct_block, qtable)
             if bi == 0 and bj == 0 and print_first_block:
                 debug["quantized_block"] = q_block.copy()
 
-            zz_coeffs = zigzag_flat(q_block)
-            
-            # Store flat coefficients for entropy
-            all_coeffs_flat.extend(zz_coeffs)
-            tokens, prev_dc = rle_encode_block(zz_coeffs, prev_dc)
+            # ----- stats: occupancy per coefficient position -----
+            if collect_stats:
+                stats["num_blocks"] += 1
+                stats["occupancy_counts"] += (q_block != 0).astype(np.int64)
+
+            zz_list = zigzag_flat(q_block)
+
+            # ----- stats: zero-run histogram over the AC stream -----
+            if collect_stats:
+                _accum_zero_runs(zz_list[1:])  # ACs only
+
+            tokens, prev_dc = rle_encode_block(zz_list, prev_dc)
             all_tokens.extend(tokens)
     
     # Getting the  Huffman codes for this channel and encode the token stream
@@ -802,6 +819,12 @@ def encode_channel(channel_u8: np.ndarray, base_qt: np.ndarray, quality: int,
         "qtable": qtable.tolist(),
         "quantization_method": quantization_method,
         }
+    if collect_stats:
+        # Convert numpy to lists for JSON friendliness; keep counts as plain types
+        meta["stats"] = {
+            "num_blocks": int(stats["num_blocks"]),
+            "occupancy_counts": stats["occupancy_counts"].tolist(),
+            "zero_run_hist": {str(int(k)): int(v) for k, v in stats["zero_run_hist"].items()}}
     return meta, debug
 
 
@@ -905,6 +928,7 @@ def jpeg_encode_pipeline(source, config, show_first_block=False):
     quality = config['quality']
     quantization_method = config['quantization_method']
     chroma_method = config['chroma_method']
+    collect_stats = config.get("collect_stats", False)
 
     if isinstance(source, str):
         img = ensure_rgb(Image.open(source))
@@ -930,13 +954,13 @@ def jpeg_encode_pipeline(source, config, show_first_block=False):
 
     y_meta, y_dbg = encode_channel(Y, y_base_table, quality, 
                                    quantization_method=quantization_method,
-                                   print_first_block=show_first_block)
+                                   print_first_block=show_first_block, collect_stats=collect_stats)
     cb_meta, _ = encode_channel(Cb_ds, c_base_table, quality, 
                                 quantization_method=quantization_method,
-                                print_first_block=False)
+                                print_first_block=False, collect_stats=collect_stats)
     cr_meta, _ = encode_channel(Cr_ds, c_base_table, quality, 
                                 quantization_method=quantization_method,
-                                print_first_block=False)
+                                print_first_block=False, collect_stats=collect_stats)
 
     # This is foer tbe debugging purpose only as it  prints for the very first Y block
     if show_first_block:
@@ -945,7 +969,8 @@ def jpeg_encode_pipeline(source, config, show_first_block=False):
         print_matrix(y_dbg["dct_block"], "DCT Coefficients (Y)")
         print_matrix(y_dbg["quantized_block"], "Quantized DCT (Y)")
 
-    meta = {  "width": W,
+    meta = {  
+        "width": W,
         "height": H,
         "chroma_method": chroma_method,
         "quality": quality,
@@ -979,6 +1004,9 @@ def jpeg_decode_pipeline(meta: Dict[str, Any]) -> Image.Image:
     
     return ycbcr_to_rgb_image(Y, Cb, Cr)
 
+
+# Main methods that runs all of the code, does the encoding as well as the decoding !
+
 def main():
     parser = argparse.ArgumentParser(description="JPEG Pipeline")
     parser.add_argument("input", help = "Input image (bmp, tif, jpg, png, etc. any raw file which are large in size)")
@@ -1002,4 +1030,19 @@ def main():
     print(f"\nSaved reconstructed image is saved in the file {args.out}")
 
 if __name__ == "__main__":
-    main()
+    test_config = {
+        'quality': 5,
+        'quantization_method': 'standard',
+        'chroma_method': 'nearest',
+    }
+    
+    print("Testing...")
+    meta = jpeg_encode_pipeline(
+        'images/desert-ribbons.tif',
+        config=test_config,
+        show_first_block=True
+    )
+    print("Testing standard decode")
+    recon_standard = jpeg_decode_pipeline(meta)
+    recon_standard.save('reconstructed_standard.png')
+    print("Saved to reconstructed_standard.png")
