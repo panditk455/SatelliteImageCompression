@@ -1,13 +1,15 @@
 # Author: Leon Liang
-# Date: Thursday, Oct 9 - Oct 15, 2025
+# Quantization in JPEG2000 pipeline
 
 import numpy as np
 from typing import Dict, List, Tuple
 
+# Helper function: Linear Interpolation
 # a: minimum, b: maximum, t: quality
 def linear_interpolation(a, b, t):
     return a + (b - a) * t / 100
 
+# Calculating the step sizes and deadzones based on the number of DWT level and user defined quality factor
 def calc_params(num_levels: int, quality: float) -> Tuple[Dict[Tuple[int, str], float], float, Dict[str, float]]:
     """
     Return:

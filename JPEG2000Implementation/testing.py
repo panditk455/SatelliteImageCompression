@@ -1,4 +1,5 @@
-# Poorly constructed testing file don't look
+# Author: Leon Liang and Lucas 
+# Testing if our implementation worked
 
 import transforms, quantization, partition, entropy_parallel, baseline
 from skimage import io, color, util, metrics

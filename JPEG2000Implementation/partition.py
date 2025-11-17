@@ -1,3 +1,6 @@
+# Author: Leon Liang
+# Partitioning in JPEG2000 pipeline
+
 from typing import List, Tuple, Dict
 import numpy as np
 

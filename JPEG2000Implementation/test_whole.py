@@ -1,3 +1,10 @@
+# Author: Leon Liang
+# Experiments
+# Three parameters can be changed: blocksize in partitioning, quality in quantization, and pivot in entropy coding.
+
+# Example command line for running this file:
+# python3 test_whole.py images/re-entry.tif images/fanned-out.tif --outdir output_folder --block_sizes 16 32 64 --qualities 20 50 80 --pivots 1 5 10
+
 from PIL import Image, features
 import os
 import sys
@@ -57,8 +64,6 @@ def convert_to_jpeg2000(input_path: str, output_dir: str, quality: int = 75, blo
 
     start = time.time()
 
-    # io.imsave('original.png', img)
-
     colors = baseline.getYCbCrArrays(input_path)
     dwt_coeffs = baseline.DWTAll(colors)
     quantized = quantization.quantize_all(dwt_coeffs, quality)
@@ -70,18 +75,9 @@ def convert_to_jpeg2000(input_path: str, output_dir: str, quality: int = 75, blo
     de_quant = quantization.dequantize_all(de_part, quality)
     idwt = baseline.DecodeAll(de_quant)
     recon = baseline.reconstructRGB(idwt)
-    # print(metrics.peak_signal_noise_ratio(img, recon))
-
-    # quantized2 = quantization.quantize_all(dwt_coeffs, 0)
-    # dequantized2 = quantization.dequantize_all(quantized2, 0)
-    # idwt2 = baseline.DecodeAll(dequantized2)
-    # recon2 = baseline.reconstructRGB(idwt2)
-
-    # print(metrics.peak_signal_noise_ratio(img, recon2))
     
     io.imsave(image_path, recon)
     
-
     # print(len(part))
     runtime = time.time() - start
     print(f"{name} (block {block_size}) (quality {quality}) (pivot {pivot}): Done in {runtime:.3f}s")
@@ -287,6 +283,7 @@ def plot_results_quality(results, outdir):
 
     print(f"Saved quality plots to {outdir}")
 
+# Pivot experiment graph
 def plot_results_pivot(results, outdir):
     import os
     import matplotlib.pyplot as plt
@@ -379,6 +376,7 @@ def main():
                     results.append(analyze_pair(inp, bin_out_path, image_out_path, block_size, runtime, quality, pivot))
 
     print_table(results)
+    # # Comment or uncomment the following functions depemdimg on the experiment you run
     # plot_results_blocksize(results, args.outdir)
     # plot_results_quality(results, args.outdir)
     plot_results_pivot(results, args.outdir)
