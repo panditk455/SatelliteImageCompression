@@ -352,70 +352,6 @@ def dequantize(quantized_block, qtable):
     """
     return (quantized_block * qtable).astype(np.float32)
 
-def quantize_deadzone(dct_block, qtable):
-    """
-    Potential optimization of USQ called Uniform Scalar Deadzone Quantization (USDZQ).
-    Uses non-uniform bins to reduce more small coefficient values to zero.
-    
-    As described in the paper: https://ieeexplore.ieee.org/document/1346303
-    [-T, T] maps to 0
-    [T, 3d) maps to 1
-    [-3d, -T) maps to -1
-    (2k-1)d to (2k+1)d otherwise
-    """
-    # d is half the quantization step size
-    d = qtable.astype(np.float32) / 2.0
-    
-    # threshold t, we quantize [-t, t] to zero
-    t = d / 0.775 
-    
-    # Separating sign and magnitude makes logic easier
-    sign = np.sign(dct_block)
-    magnitude = np.abs(dct_block)
-    
-    # Initialize quantized magnitude array all zeros
-    quantized_mag = np.zeros_like(magnitude, dtype=int)
-
-    # If the magnitude (DCT coefficient) is >=t but <3d, quantize to bin (value) 1
-    mask_1 = (magnitude >= t) & (magnitude < 3*d)
-    # np syntax to set values where mask is true
-    quantized_mag[mask_1] = 1
-
-    # magnitude >= 3d, quantize using normal bins
-    mask_k = (magnitude >= 3*d)
-    quantized_mag[mask_k] = np.floor((magnitude[mask_k] - d[mask_k]) / (2 * d[mask_k])) + 1
-
-    return (sign * quantized_mag).astype(int)
-
-def dequantize_deadzone(quantized_block, qtable):
-    """
-    USDZQ Dequantization.
-    Reconstructs coefficients based on the bins.
-    Information loss step because values in same bin map to the same quantized value.
-    """
-    k = quantized_block.astype(np.float32)
-    d = qtable.astype(np.float32) / 2.0
-    
-    t = d / 0.775
-    
-    reconstructed_dct = np.zeros_like(k, dtype=np.float32)
-    
-    # Reconstructing the DCT coefficients based on quantized value k
-    # midpoint of the bin range is used
-    mask_1 = (k == 1)
-    reconstructed_dct[mask_1] = (t[mask_1] + 3*d[mask_1]) / 2.0
-    
-    mask_n1 = (k == -1)
-    reconstructed_dct[mask_n1] = (-3*d[mask_n1] - t[mask_n1]) / 2.0
-    
-    mask_pos_k = (k > 1)
-    reconstructed_dct[mask_pos_k] = 2 * k[mask_pos_k] * d[mask_pos_k] 
-    
-    mask_neg_k = (k < -1)
-    reconstructed_dct[mask_neg_k] = 2 * k[mask_neg_k] * d[mask_neg_k]
-    
-    return reconstructed_dct.astype(np.float32)
-
 # Zig-Zag and RLE (Start of Entropy Encoding) ---------------------------------------------
 
 def zigzag_indices(n =8):
@@ -724,7 +660,7 @@ def encode_channel(channel_u8: np.ndarray, base_qt: np.ndarray, quality: int,
           'bitstring',                       # compressed token stream
           'dc_init',                         # baseline = 0
           'qtable',                          # the   8x8 quantization table (as list of lists)
-          'quantization_method'              # 'standard' or 'deadzone'
+          'quantization_method'              # 'standard' or 'flat'
           }
     """
     
@@ -780,10 +716,7 @@ def encode_channel(channel_u8: np.ndarray, base_qt: np.ndarray, quality: int,
             if bi == 0 and bj == 0 and print_first_block:
                 debug["dct_block"] = dct_block.copy()
 
-            if quantization_method == "deadzone":
-                q_block = quantize_deadzone(dct_block, qtable)
-            else:
-                q_block = quantize(dct_block, qtable)
+            q_block = quantize(dct_block, qtable)
             if bi == 0 and bj == 0 and print_first_block:
                 debug["quantized_block"] = q_block.copy()
 
@@ -891,10 +824,7 @@ def decode_channel(meta: Dict[str, Any], print_first_block: bool = False) -> np.
             # Placing it  back into 8×8, dequantize, inverse DCT, re-center and back to the RGB
             q_block = izigzag_flat(coeffs)
             
-            if quantization_method == "deadzone":
-                deq = dequantize_deadzone(q_block, block_qtable)
-            else:
-                deq = dequantize(q_block, block_qtable)
+            deq = dequantize(q_block, block_qtable)
 
             spatial = IDCT_2d(deq) + 128.0
             spatial = np.clip(spatial, 0, 255)
@@ -945,7 +875,7 @@ def jpeg_encode_pipeline(source, config, show_first_block=False):
     Cb_ds = downsample_420(Cb, chroma_method)
     Cr_ds = downsample_420(Cr, chroma_method)
 
-    if quantization_method == "standard" or quantization_method == "deadzone":
+    if quantization_method == "standard":
         y_base_table = luma_quantization_table
         c_base_table = chroma_quantization_table
     else:
@@ -1013,7 +943,7 @@ def main():
     
     parser.add_argument("--quality", type  = int, default = 50, help = "Quality (1-95))")
     parser.add_argument("--method", choices=["nearest", "average", "444"], default = "nearest", help = "Chroma 4:2:0 downsampling method, choose one of them")
-    parser.add_argument("--qmethod", choices=["standard", "deadzone", "flat"], default="standard", help="Quantization method (standard USQ, deadzone USDZQ, or flat)")
+    parser.add_argument("--qmethod", choices=["standard", "flat"], default="standard", help="Quantization method (standard USQ or flat)")
     parser.add_argument("--out", default = "reconstructed_image.png", help = "Output: reconstructed RGB image")
     args = parser.parse_args()
     
