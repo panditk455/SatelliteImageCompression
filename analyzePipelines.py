@@ -249,7 +249,6 @@ if __name__ == "__main__":
     quantization_methods = [
         'standard',
         'flat',
-        'deadzone'
     ]
 
     chroma_methods = [
