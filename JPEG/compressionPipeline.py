@@ -1,6 +1,5 @@
 """
 JPEG Full pipeline implementation: color space conversion, chroma subsampling, DCT, quantization, and entropy coding.
-Authors: Kritika Pandit, Anika Rajbhandary
 """
 import argparse
 from typing import List, Tuple, Dict, Any
@@ -134,8 +133,11 @@ chroma_quantization_table = np.array([
 ])
 
 
-# Flat Quantization Table for experiment
+# Large magnitude flat Quantization Table for experiment
 flat_quantization_table = np.full((8, 8), 99)
+
+# Small magnitude flat Quantization Table for experiment
+small_flat_quantization_table = np.full((8, 8), 16)
 
 # Quality scaling for QTables
 def scale_qtable(base_qt: np.ndarray, quality: int) -> np.ndarray:
@@ -772,12 +774,9 @@ def decode_channel(meta: Dict[str, Any], print_first_block: bool = False) -> np.
     w_blocks: int = meta["w_blocks"]
     padded_shape = tuple(meta["padded_shape"]) 
     huff_codes: Dict[str, str] = meta["huffman_codes"]
-    qtable = np.array(meta["qtable"], dtype=int)
     qtable_base = np.array(meta["qtable"], dtype=int)
     packed_bytes: bytes = meta["packed_bitstream"]
     num_bits: int = meta["num_bits"]
-    quantization_method: str = meta.get("quantization_method", "standard")
-
 
     # Unpack bytes to bitstring
     bitstring = unpack_bytes_to_bitstring(packed_bytes, num_bits)
@@ -878,9 +877,14 @@ def jpeg_encode_pipeline(source, config, show_first_block=False):
     if quantization_method == "standard":
         y_base_table = luma_quantization_table
         c_base_table = chroma_quantization_table
-    else:
+    elif quantization_method == "large_flat":
         y_base_table = flat_quantization_table
         c_base_table = flat_quantization_table
+    elif quantization_method == "small_flat":
+        y_base_table = small_flat_quantization_table
+        c_base_table = small_flat_quantization_table
+    else:
+        raise ValueError("Unknown Quantization Method")
 
     y_meta, y_dbg = encode_channel(Y, y_base_table, quality, 
                                    quantization_method=quantization_method,
@@ -943,7 +947,7 @@ def main():
     
     parser.add_argument("--quality", type  = int, default = 50, help = "Quality (1-95))")
     parser.add_argument("--method", choices=["nearest", "average", "444"], default = "nearest", help = "Chroma 4:2:0 downsampling method, choose one of them")
-    parser.add_argument("--qmethod", choices=["standard", "flat"], default="standard", help="Quantization method (standard USQ or flat)")
+    parser.add_argument("--qmethod", choices=["standard", "small_flat", "large_flat"], default="standard", help="Quantization method (standard USQ or flat)")
     parser.add_argument("--out", default = "reconstructed_image.png", help = "Output: reconstructed RGB image")
     args = parser.parse_args()
     
@@ -960,19 +964,4 @@ def main():
     print(f"\nSaved reconstructed image is saved in the file {args.out}")
 
 if __name__ == "__main__":
-    test_config = {
-        'quality': 5,
-        'quantization_method': 'standard',
-        'chroma_method': 'nearest',
-    }
-    
-    print("Testing...")
-    meta = jpeg_encode_pipeline(
-        'images/desert-ribbons.tif',
-        config=test_config,
-        show_first_block=True
-    )
-    print("Testing standard decode")
-    recon_standard = jpeg_decode_pipeline(meta)
-    recon_standard.save('reconstructed_standard.png')
-    print("Saved to reconstructed_standard.png")
+    main()
