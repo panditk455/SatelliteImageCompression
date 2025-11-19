@@ -242,21 +242,28 @@ class CompressionEvaluator:
 
 if __name__ == "__main__":
     evaluator = CompressionEvaluator(output_dir='compression_results')
+
+    # Test folder with all of the images
     test_folder = 'images' 
-    
+
+    # Testing Configuration --------------
+    # Alter Quality Levels (0-100)
     jpeg_qualities = [10, 30, 50, 70, 90] 
-    
+
+    # Alter Quantization Methods ('standard, 'small_flat', 'large_flat')
     quantization_methods = [
         'standard',
-        'flat',
+        'small_flat',
+        'large_flat',
     ]
 
+    # Alter Chroma methods ('nearest', 'average', '444')
     chroma_methods = [
         'nearest',
         'average',
         '444'
     ]
-
+    --------------------------------------
     print(f"Evaluating images in folder: {test_folder}")
 
     results = evaluator.evaluate_dataset(
@@ -264,6 +271,6 @@ if __name__ == "__main__":
         jpeg_qualities,
         quantization_methods,
         chroma_methods,
-        collect_stats_for = True
+        collect_stats_for = False # Collect stats for histogram and heatmap
     ) 
     print(f"Evaluation complete.")
