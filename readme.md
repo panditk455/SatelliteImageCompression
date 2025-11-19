@@ -46,17 +46,17 @@ Implements a full step‑by‑step JPEG encoder and decoder from scratch. It com
 Implements a full step‑by‑step JPEG‑2000 (JP2) encoder and decoder,  It uses discrete wavelet transforms (DWT) instead of block‑based DCT.
 
 **Encoding:**
-**RGB** ->  **YCbCr color conversion**
-**Discrete Wavelet Transform (DWT)**
-**Quantization of sub‑bands**
-**Bitplane coding via Embedded Block Coding with Optimized Truncation (EBCOT)**
-**Entropy coding (arithmetic coding) producing final bitstream**
+* **RGB** ->  **YCbCr color conversion**
+* **Discrete Wavelet Transform (DWT)**
+* **Quantization of sub‑bands**
+* **Bitplane coding via Embedded Block Coding with Optimized Truncation (EBCOT)**
+* **Entropy coding (arithmetic coding) producing final bitstream**
 
 **Decoding:**
 
-**Inverse entropy decoding** -> **Inverse bitplane reconstruction**
-**Inverse quantization** -> **Inverse DWT**
-**Inverse YCbCr** ->  **RGB reconstruction**
+* **Inverse entropy decoding** -> **Inverse bitplane reconstruction**
+* **Inverse quantization** -> **Inverse DWT**
+* **Inverse YCbCr** ->  **RGB reconstruction**
 
 ---
 
@@ -89,6 +89,24 @@ python conversion.py path/to/image.png --quality 50 --method average --out recon
 
 * A reconstructed RGB image
 * Optional console printout of the **first Y block** at each compression stage (for debugging)
+
+## Run the custom JPEG2000 pipeline
+
+```bash
+python jpeg2000pipeline.py image.tif --outdir output_folder --dwt_levels 1 3 5 --block_sizes 16 32 64 --qualities 20 50 80 --pivots 1 5 10
+```
+
+**Arguments:**
+
+* `--outdir` -> Output directory for analysis results
+* `--dwt_levels` -> List of DWT levels (0-11; default 1)
+* `--block_sizes` -> List of block sizes in partitioning (default 64x64)
+* `--qualities` -> List of quality levels for quantization (default 75)
+* `--pivots` -> TBA (default 1)
+
+### **Outputs:**
+
+* Plots comparing metrics across tweaks in portions of pipeline
 
 ---
 
