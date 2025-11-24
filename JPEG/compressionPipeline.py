@@ -133,10 +133,10 @@ chroma_quantization_table = np.array([
 ])
 
 
-# Large magnitude flat Quantization Table for experiment
+# Large magnitude flat Quantization Table
 flat_quantization_table = np.full((8, 8), 99)
 
-# Small magnitude flat Quantization Table for experiment
+# Small magnitude flat Quantization Table
 small_flat_quantization_table = np.full((8, 8), 16)
 
 # Quality scaling for QTables
@@ -263,7 +263,7 @@ def get_fixed_dct_factors(N: int) -> Tuple[np.ndarray, np.ndarray]:
     factors[0] = 1.0 / np.sqrt(N)
     factors[1:] = np.sqrt(2.0 / N)
     
-    # Cosine basis functions (still needs to be multiplied with input signal later)
+    # Cosine basis functions (will be multiplied with input signal during 1D DCT)
     cos_basis = np.zeros((N, N))
     for u in range(N):
         for x in range(N):
@@ -309,7 +309,6 @@ def DCT_2d(signal: np.ndarray) -> np.ndarray:
 def dct_inv_1d(signal: np.ndarray) -> np.ndarray:
     """
     Computes the 1D Inverse Discrete Cosine Transform (IDCT) for an 8-element vector.
-    Uses the pre-calculated factors for O(N) efficiency.
 
     Equation for 1D Inverse DCT:
         signal[x] = sum_{u=0}^{N-1} C(u) * DCT[u] * cos[(2x + 1) * u * pi / (2N)]
@@ -938,9 +937,6 @@ def jpeg_decode_pipeline(meta: Dict[str, Any]) -> Image.Image:
     
     return ycbcr_to_rgb_image(Y, Cb, Cr)
 
-
-# Main methods that runs all of the code, does the encoding as well as the decoding !
-
 def main():
     parser = argparse.ArgumentParser(description="JPEG Pipeline")
     parser.add_argument("input", help = "Input image (bmp, tif, jpg, png, etc. any raw file which are large in size)")
@@ -950,7 +946,7 @@ def main():
     parser.add_argument("--qmethod", choices=["standard", "small_flat", "large_flat"], default="standard", help="Quantization method (standard USQ or flat)")
     parser.add_argument("--out", default = "reconstructed_image.png", help = "Output: reconstructed RGB image")
     args = parser.parse_args()
-    
+
     test_config = {
         'quality': args.quality,
         'quantization_method': args.qmethod,

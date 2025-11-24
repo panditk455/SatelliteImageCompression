@@ -1,12 +1,14 @@
-# plotting.py
-
-
 """
 Plotting the JPEG Experiments:
 
 - Rate–distortion (RD) curves from the CSV produced by CompressionEvaluator
 - Coefficient occupancy heatmaps from per-channel stats JSONs
 - Zero-run length histograms and mean zero-run length vs. quality
+- Plotting heatmaps of 8x8 blocks
+- RD curve PSNR vs BPP at varying quality levels
+- Edge density vs compression efficiency
+- Averaged RD curve of standard, vs large flat, vs small flat quantization tables
+- Averaged curve of runtime vs BPP
 
 These functions generate the figures used in the JPEG sections of the paper.
 Used Gemini to standardize the plot sizing and improve axis and legend labeling for better visualization quality.
@@ -386,18 +388,12 @@ if __name__ == "__main__":
 # python3 -c "import plotting as p; p.zerorun_grid_all_channels('compression_results/stats/*_stats_*.json', quality=95)"
 # python3 -c "import plotting as p; p.zerorun_mean_vs_quality('compression_results/stats/*_stats_*.json')"
 
-
-"""
-Plotting functions for visualizing results from compression experiments.
-Note: these functions read from specific CSV files generated during the experiments.
-Should generalize to be run on a singular results csv in future as needed.
-"""
-
 new_dir = 'Plots'
 if not os.path.exists(new_dir):
     os.mkdir(new_dir)
 
 # Heatmaps for representing spatial data, frequency data, and quantized frequency data ----------------
+# From deep-blue-cubism.tif block 100, 100 (Y channel)
 pixel_block = np.array([
     [52.0, 139.0, 162.0, 116.0, 97.0, 107.0, 107.0, 108.0],
     [89.0, 153.0, 163.0, 127.0, 110.0, 114.0, 118.0, 127.0],
@@ -432,6 +428,9 @@ quantization_matrix = np.array([
 ])
 
 def plot_heatmap(data: np.ndarray, title: str, save_path: str):
+    """
+    Plots heatmap of coefficients in input np array
+    """
     plt.figure(figsize=(10, 6))
     plt.imshow(data, cmap='gray', interpolation='nearest')
     plt.colorbar()
@@ -440,8 +439,10 @@ def plot_heatmap(data: np.ndarray, title: str, save_path: str):
     plt.savefig(save_path)
     plt.close()
 
-# Rate-Distortion Curve for Quality Experiments 
 def rate_distortion_curve(csv_path: str, save_path: str):
+    """
+    Rate Distortion Curve (BPP vs PSNR db) at varying quality levels.
+    """
     df = pd.read_csv(csv_path)
     unique_images = df['image_name'].unique()
 
@@ -462,37 +463,10 @@ def rate_distortion_curve(csv_path: str, save_path: str):
     plt.savefig(save_path)
     plt.close()
 
-# Comparing the Quantization methods
-
-def quantization_comparison(csvs: list[str]):
-    dfs = [pd.read_csv(csv) for csv in csvs]
-    unique_methods = pd.concat(dfs)['quantization_method'].unique()
-
-    plt.figure(figsize=(10, 6))
-    counter = 0
-    for method in unique_methods:
-        method_df = pd.concat(dfs)[pd.concat(dfs)['quantization_method'] == method]
-
-        method_df = method_df.sort_values(by='bpp')
-        plt.plot(method_df['bpp'], method_df['psnr_db'], label=method, marker='o')
-        plt.xlabel('Rate (Bits Per Pixel - bpp)')
-        plt.ylabel('Distortion (Peak Signal-to-Noise Ratio - PSNR)')
-        plt.title(f'Rate-Distortion Curve of {method_df["image_name"].iloc[0]} for Different Quantization Methods')
-
-        plt.legend()
-        plt.grid(True)
-
-        plt.tight_layout()
-
-        image_path = os.path.join(new_dir, f'quantization_distortion_curve{counter}.png')
-        plt.savefig(image_path)
-
-        plt.show()
-        counter += 1
-
-
-# BPP vs Spatial Complexity at fixed quality level 75
 def bpp_vs_spatial_complexity(csv_path: str):
+    """
+    Plots BPP against edge density at fixed quality level 75.
+    """
     df = pd.read_csv(csv_path)
     df_quality_75 = df[df['quality_setting'] == 75]
 
@@ -521,9 +495,91 @@ def bpp_vs_spatial_complexity(csv_path: str):
 
     plt.show()
 
+def plot_average_rd_curve(csv_path):
+    """
+    Plots the average Rate-Distortion (R-D) curve for 'standard' vs. 'flat' vs 'small_flat'
+    methods, averaged across all images in the CSV.
+    """
+    # Load the full dataset
+    df = pd.read_csv(csv_path)
 
-# Other plots for the JPEG Experiments:
+    methods_to_compare = ['standard', 'flat', 'small_flat']
+    df_filtered = df[df['quantization_method'].isin(methods_to_compare)].copy()
+
+    df_agg = df_filtered.groupby(['quantization_method', 'quality_setting'])[['ssim', 'bpp']].mean().reset_index()
+    
+    df_agg = df_agg.sort_values(by='bpp')
+
+    plt.figure(figsize=(10, 6))
+    style_map = {
+        'standard': '-o',
+        'flat': '--s',
+        'small_flat': ':^'
+    }
+
+    for method in methods_to_compare:
+        method_data = df_agg[df_agg['quantization_method'] == method]
+        style = style_map.get(method, 'k--')
+        
+        plt.plot(method_data['bpp'], method_data['ssim'], 
+                 style, label=method)
+
+    plt.xlabel('Average Rate (Bits Per Pixel - bpp)')
+    plt.ylabel('Average Quality (PSNR_db)')
+    plt.title('Average Rate-Distortion Curve (Standard vs. Flat)')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+
+    save_path = os.path.join(new_dir, 'average_rd_curve.png')
+    plt.savefig(save_path)
+    plt.close()
+    print(f"Average R-D curve saved to {save_path}")
+
+def plot_average_runtime_vs_bpp(csv_path: str):
+    """
+    Calculates the total runtime (encode + decode), averages it with bpp 
+    across all images for each setting, and plots Runtime vs. BPP.
+    """
+    df = pd.read_csv(csv_path)
+
+    df['total_runtime_ms'] = df['encode_time_ms'] + df['decode_time_ms']
+    
+    methods_to_compare = ['standard']
+    df_filtered = df[df['quantization_method'].isin(methods_to_compare)].copy()
+
+    df_agg = df_filtered.groupby(['quantization_method', 'quality_setting'])[['total_runtime_ms', 'bpp']].mean().reset_index()
+    
+    df_agg = df_agg.sort_values(by='bpp')
+
+    plt.figure(figsize=(10, 6))
+    style_map = {
+        'standard': '-o',
+    }
+
+    for method in methods_to_compare:
+        method_data = df_agg[df_agg['quantization_method'] == method]
+        style = style_map.get(method, 'k--')
+        
+        plt.plot(method_data['bpp'], method_data['total_runtime_ms'], 
+                 style, label=method)
+
+    plt.xlabel('Average Rate (Bits Per Pixel - bpp)')
+    plt.ylabel('Average Total Runtime (ms)')
+    plt.title('Average Total Runtime vs. Rate')
+    plt.legend(title='Quantization Method')
+    plt.grid(True)
+    plt.tight_layout()
+
+    save_path = os.path.join(new_dir, 'average_runtime_vs_bpp_curve.png')
+    plt.savefig(save_path)
+    plt.close()
+    print(f"Average Runtime vs. BPP curve saved to {save_path}")
+
+
 def main():
     plot_heatmap(pixel_block, 'Spatial Domain Heatmap', os.path.join(new_dir, 'spatial_heatmap.png'))
     plot_heatmap(dct_coefficients, 'Frequency Domain Heatmap (DCT Coefficients)', os.path.join(new_dir, 'frequency_heatmap.png'))
     plot_heatmap(np.round(dct_coefficients / quantization_matrix).astype(int), 'Quantized Heatmap', os.path.join(new_dir, 'quantized_frequency_heatmap.png'))
+
+    # Graph other plots
