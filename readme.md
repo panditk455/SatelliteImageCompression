@@ -1,4 +1,4 @@
-# JPEG & JPEG‑2000 (Work‑in‑Progress)
+# JPEG & JPEG‑2000
 
 Authors: **Kritika Pandit**, **Anika Rajbhandary**, **Leon Liang**, and **Lucas Schattenmann**
 
